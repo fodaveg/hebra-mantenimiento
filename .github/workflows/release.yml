@@ -153,7 +153,14 @@ jobs:
             --draft --verify-tag \
             --title "$TAG" \
             --notes-file "release-notes/$TAG.md"
-          RELEASE_ID=$(gh api "repos/$REPO/releases" --jq "map(select(.draft and .tag_name == \"$TAG\")) | first | .id")
+          # The releases listing is eventually consistent: a draft just created may not show up yet.
+          RELEASE_ID=""
+          for ATTEMPT in 1 2 3 4 5 6 7 8 9 10; do
+            RELEASE_ID=$(gh api "repos/$REPO/releases" --jq "map(select(.draft and .tag_name == \"$TAG\")) | first | .id") || RELEASE_ID=""
+            if [ -n "$RELEASE_ID" ] && [ "$RELEASE_ID" != "null" ]; then break; fi
+            echo "draft for $TAG not listed yet (attempt $ATTEMPT/10)"
+            sleep 3
+          done
           test -n "$RELEASE_ID" && test "$RELEASE_ID" != "null" || { echo "::error::the draft for $TAG was not found"; exit 1; }
           echo "RELEASE_ID=$RELEASE_ID" >> "$GITHUB_ENV"
 
@@ -184,7 +191,12 @@ jobs:
           set -euo pipefail
           ID="${RELEASE_ID:-}"
           if [ -z "$ID" ]; then
-            ID=$(gh api "repos/$REPO/releases" --paginate --jq ".[] | select(.draft == true and .tag_name == \"$TAG\") | .id" | head -n 1 || true)
+            # Same listing lag as when creating the draft: retry a bounded number of times before giving up.
+            for _ in 1 2 3 4 5 6 7 8 9 10; do
+              ID=$(gh api "repos/$REPO/releases" --paginate --jq ".[] | select(.draft == true and .tag_name == \"$TAG\") | .id" | head -n 1 || true)
+              if [ -n "$ID" ]; then break; fi
+              sleep 3
+            done
           fi
           if [ -z "$ID" ]; then
             echo "no draft for $TAG to remove"
