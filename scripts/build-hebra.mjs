@@ -174,7 +174,7 @@ export async function buildHebra() {
     platforms: ['macos', 'ios', 'linux', 'windows', 'web'],
     main: MAIN_FILE,
     styles: STYLES_FILE,
-    icon: 'wrench',
+    icon: 'circle-check',
     capabilities: { required: ['vault.read', 'vault.write'], optional: [] },
     network: { hosts: [] },
     shared: {},

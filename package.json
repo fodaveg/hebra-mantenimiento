@@ -14,11 +14,13 @@
     "check": "npm run lint && npm run typecheck && npm run build:hebra && npm test"
   },
   "devDependencies": {
+    "@codemirror/state": "^6.5.0",
     "@types/node": "^22.0.0",
     "esbuild": "0.28.2",
+    "fake-indexeddb": "^6.0.0",
     "eslint": "^9.30.1",
     "happy-dom": "^20.14.5",
-    "hebra-plugin-api": "github:fodaveg/hebra-plugin-api#v2.2.0",
+    "hebra-plugin-api": "file:../hebra-plugin-api",
     "typescript": "^5.4.5",
     "typescript-eslint": "^8.35.1",
     "vite": "^7.0.0",

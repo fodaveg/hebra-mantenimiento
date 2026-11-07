@@ -7,8 +7,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { cwd } from 'node:process';
 import { pathToFileURL } from 'node:url';
-import { createFakePluginApiV2 } from 'hebra-plugin-api/v2/testing';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { openDb } from '../src/scan/db';
+import { renameRegistry } from '../src/scan/renames';
+import { makeFake } from './helpers';
 // @ts-expect-error -- plain .mjs shared with the build script, without types
 import { FORBIDDEN_CALLS, findForbiddenCalls } from '../scripts/forbidden-calls.mjs';
 
@@ -31,12 +33,19 @@ describe('hebra-main.mjs (hay que construirlo: npm run build:hebra)', () => {
     };
     expect(typeof loaded.activate).toBe('function');
 
-    const fake = createFakePluginApiV2({ capabilities: ['vault.read', 'vault.write'] });
-    // La 2.2 aún no sirve las vistas de pestaña en el marco (`notYet`): las vistas y
-    // `workspace.openView` van al host falso 1.x que las respalda; lo demás, a la API 2.x.
+    const fake = makeFake({ 'n-1': '# Uno\n\n[[Dos]]\n', 'n-2': '# Dos\n' });
+    // El host falso v2 aún no tiene gestor de superficies (`ui.registerView` y
+    // `workspace.openView` responden `capability-not-available`): esas dos van al host falso
+    // 1.x que lo respalda y que sí graba vistas de pestaña. El resto, a la API 2.x.
     const api = new Proxy({}, {
       get(_target, key) {
-        if (key === 'ui' || key === 'workspace') return Reflect.get(fake.host.api, key) as unknown;
+        if (key === 'ui') return Reflect.get(fake.host.api, key) as unknown;
+        if (key === 'workspace') {
+          return new Proxy({}, {
+            get: (_t, name) =>
+              Reflect.get(name === 'openView' ? fake.host.api.workspace : fake.api.workspace, name) as unknown
+          });
+        }
         return Reflect.get(fake.api, key) as unknown;
       }
     });
@@ -46,22 +55,35 @@ describe('hebra-main.mjs (hay que construirlo: npm run build:hebra)', () => {
     const { commands, ribbon, tabViews } = fake.host.recorded;
     expect(commands.map((c) => c.name)).toEqual(['Mantenimiento: revisar la biblioteca']);
     expect(ribbon).toHaveLength(1);
-    expect(ribbon[0]).toMatchObject({ icon: 'wrench', title: 'Mantenimiento' });
+    expect(ribbon[0]).toMatchObject({ icon: 'circle-check', title: 'Mantenimiento' });
     expect(tabViews).toHaveLength(1);
-    expect(tabViews[0]).toMatchObject({ title: 'Mantenimiento', placement: 'tab', icon: 'wrench' });
+    expect(tabViews[0]).toMatchObject({ title: 'Mantenimiento', placement: 'tab', icon: 'circle-check' });
 
     // El comando y el raíl abren la pestaña.
     await commands[0].run();
     ribbon[0].onClick();
     expect(fake.host.recorded.viewOpens.map((o) => o.viewId)).toEqual([tabViews[0].id, tabViews[0].id]);
 
-    // La pestaña enseña el estado vacío, con el botón deshabilitado.
+    // La pestaña enseña el estado vacío, con «Revisar la biblioteca» habilitado.
     const mounted = fake.host.tabView.mount(tabViews[0].id);
     expect(mounted.el.textContent).toContain('Revisa la biblioteca para buscar enlaces rotos');
-    const button = mounted.el.querySelector('button');
+    const button = mounted.el.querySelector<HTMLButtonElement>('.hebra-mantenimiento-run');
     expect(button?.textContent).toBe('Revisar la biblioteca');
-    expect(button?.disabled).toBe(true);
+    expect(button?.disabled).toBe(false);
+
+    // Revisar de punta a punta: el recorrido real contra la biblioteca falsa y su caché.
+    button?.click();
+    await vi.waitFor(() =>
+      expect(mounted.el.querySelector('.hebra-mantenimiento-status')?.textContent).toContain('2 notas revisadas')
+    );
     mounted.unmount();
+
+    // Un renombrado de título queda anotado.
+    fake.renameNoteTitle({ noteId: 'n-2', folderId: 'x', oldTitle: '  Dos VIEJO ', newTitle: 'Dos' });
+    await fake.settle();
+    const db = await openDb({ indexedDB: fake.api.storage.indexedDB, name: fake.api.storage.indexedDbName('mantenimiento') });
+    await vi.waitFor(async () => expect(await renameRegistry(db).lookup('dos viejo')).toBe('n-2'));
+    db.close();
 
     // Apagar quita todo lo registrado.
     await cleanup();
@@ -80,7 +102,7 @@ describe('hebra-main.mjs (hay que construirlo: npm run build:hebra)', () => {
       name: 'Mantenimiento',
       version: pkg.version,
       apiVersion: '^2.4.0',
-      icon: 'wrench',
+      icon: 'circle-check',
       capabilities: { required: ['vault.read', 'vault.write'], optional: [] },
       network: { hosts: [] },
       ageRating: '4+'

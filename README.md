@@ -48,7 +48,11 @@ npm test             # vitest run --maxWorkers=1
 - `scripts/build-hebra.mjs`: construye el módulo, pasa el guardarraíl (sin imports, sin `node:`, sin llamadas prohibidas) y genera `hebra.json` con los sha256.
 - `scripts/verify-release.mjs` y `scripts/sign-publish.mjs`: verifican el borrador de la release (tres ficheros) y lo firman y publican desde la máquina de la autora (`npm run release:sign-publish -- <tag>`). La clave privada vive en `~/.config/hebra-plugin-signing/hebra-mantenimiento.key` y nunca entra en el repositorio.
 
-`hebra-plugin-api` está fijada a `github:fodaveg/hebra-plugin-api#v2.2.0` porque la 2.4.0 aún no está publicada. **Cuando exista, subirla a `#v2.4.0`** en `package.json` (y regenerar `package-lock.json`); hasta entonces no se usan tipos de la 2.4. La 2.2 todavía no sirve las vistas de pestaña en el marco, así que los tests las ejercitan por el host falso 1.x que respalda al de la 2.x.
+`hebra-plugin-api` es **TEMPORALMENTE** `file:../hebra-plugin-api` (el clon local con el tag `v2.4.0`, aún sin publicar en GitHub). **Cuando el tag esté en GitHub, pasarla a `github:fodaveg/hebra-plugin-api#v2.4.0`** en `package.json` y regenerar `package-lock.json`. `@codemirror/state` (dependencia de desarrollo) y `preserveSymlinks` en `tsconfig.json` existen solo porque los tipos de ese paquete lo importan y, enlazado, TypeScript lo busca junto al clon: ambos se pueden quitar al volver a `github:`. El host falso v2 no tiene aún gestor de superficies, así que el test de activación enruta `ui` y `workspace.openView` al host falso 1.x que lo respalda; el resto va por la API 2.x.
+
+## Cómo recorre la biblioteca
+
+`src/scan/` (P2): carpetas, notas vivas y archivadas por páginas, resúmenes de 200 en 200 y lectura de cuerpos con 4 lecturas como máximo en vuelo, en trozos de 50 notas con una espera entre trozos. Nunca lee una nota protegida. De cada cuerpo guarda un derivado (enlaces y si tiene descripción) en la IndexedDB del plugin, con clave `bodySha256`: una segunda revisión sin cambios no lee ningún cuerpo. Los renombrados de título (`workspace.onNoteTitleRenamed`) se anotan aparte, hasta 10.000.
 
 ## Licencia
 
