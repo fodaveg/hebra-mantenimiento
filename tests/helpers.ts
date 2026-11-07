@@ -4,7 +4,8 @@ import type { FakeSeedNote } from 'hebra-plugin-api/testing';
 import type { PluginVault } from 'hebra-plugin-api/v2';
 import { idbCache, openDb, type AnalysisCache } from '../src/scan/db';
 import { scanLibrary } from '../src/scan/scan';
-import type { ScanMarkdown, ScanResult, ScanVault } from '../src/scan/types';
+import type { ApplyMarkdown } from '../src/apply/apply';
+import type { ScanResult, ScanVault } from '../src/scan/types';
 
 export interface LibraryShape {
   live: number;
@@ -95,21 +96,42 @@ export function countingVault(vault: PluginVault): { vault: ScanVault; calls: Va
 }
 
 /**
- * `markdown` del host falso, con `frontmatter` de verdad: el falso devuelve siempre `null`
- * (Hebra real lee el YAML), así que aquí se parsean las líneas `clave: valor` del bloque.
+ * `markdown` del host falso, con `frontmatter` y `setProperty` de verdad: el falso devuelve
+ * siempre `null` y no implementa `setProperty` (Hebra real tiene el lector de YAML). Aquí se
+ * parsean las líneas `clave: valor` del bloque, con valores entre comillas como JSON, y se
+ * escribe `clave: "valor"` con `JSON.stringify` (YAML válido, también con `:`, comillas o `\n`).
  */
-export function markdownOf(fake: FakePluginApiV2): ScanMarkdown {
+export function markdownOf(fake: FakePluginApiV2): ApplyMarkdown {
+  const block = /^---\n([\s\S]*?)\n---(\n|$)/;
   return {
     links: (body) => fake.api.markdown.links(body),
     frontmatter: (body) => {
-      const match = /^---\n([\s\S]*?)\n---/.exec(body);
+      const match = block.exec(body);
       if (!match) return null;
       const out: Record<string, unknown> = {};
       for (const line of match[1].split('\n')) {
         const pair = /^([^:]+):\s*(.*)$/.exec(line);
-        if (pair) out[pair[1].trim()] = pair[2].trim();
+        if (!pair) continue;
+        const raw = pair[2].trim();
+        let value: unknown = raw;
+        if (raw.startsWith('"')) {
+          try {
+            value = JSON.parse(raw);
+          } catch {
+            value = raw;
+          }
+        }
+        out[pair[1].trim()] = value;
       }
       return out;
+    },
+    setProperty: (body, key, value) => {
+      const line = value === null ? null : `${key}: ${JSON.stringify(value)}`;
+      const match = block.exec(body);
+      if (!match) return line === null ? body : `---\n${line}\n---\n${body}`;
+      const kept = match[1].split('\n').filter((l) => !l.startsWith(`${key}:`));
+      if (line !== null) kept.push(line);
+      return `---\n${kept.join('\n')}\n---${match[2]}${body.slice(match[0].length)}`;
     }
   };
 }
@@ -123,7 +145,7 @@ export async function scanOf(fake: FakePluginApiV2): Promise<ScanResult> {
 }
 
 /** Un `PanelHost` de mentira que apunta lo que se le pide y deja disparar «cambió la biblioteca». */
-export function stubHost(): {
+export function stubHost(applyChecked?: import('../src/panel').PanelHost['applyChecked']): {
   host: import('../src/panel').PanelHost;
   calls: { opened: string[]; searched: string[]; folders: string[]; previews: string[] };
   emitChange(): void;
@@ -141,6 +163,7 @@ export function stubHost(): {
         listeners.add(listener);
         return () => void listeners.delete(listener);
       },
+      applyChecked: applyChecked ?? (() => Promise.reject(new Error('applyChecked no esperado'))),
       linkPreview: (noteId, key, fix) => {
         calls.previews.push(`${noteId}|${key.target}|${fix?.newTarget ?? ''}`);
         return Promise.resolve({ before: `antes ${key.target}`, after: `después ${fix?.newTarget ?? ''}` });

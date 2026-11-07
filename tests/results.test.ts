@@ -7,7 +7,8 @@ import { analyze, applyLabel, countsOf, type ReviewData } from '../src/results/m
 import { linePreview } from '../src/results/preview';
 import { MAX_PAINTED_ROWS, mountResults, MORE_BUTTON } from '../src/results/view';
 import { keyOf } from '../src/detect/links';
-import { makeFake, scanOf, stubHost } from './helpers';
+import { applyChecked } from '../src/apply/apply';
+import { makeFake, markdownOf, scanOf, stubHost } from './helpers';
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -96,11 +97,13 @@ describe('secciones y recuentos', () => {
     expect(calls.previews.some((p) => p.startsWith('o1|cancion|Canción'))).toBe(true);
   });
 
-  it('el botón Aplicar dice cuántos cambios en cuántas notas y está deshabilitado (P6)', async () => {
+  it('el botón Aplicar dice cuántos cambios en cuántas notas y está habilitado si hay algo marcado', async () => {
     const { review } = await varied();
     const { el } = mount(review);
     const apply = el.querySelector<HTMLButtonElement>('.hebra-mantenimiento-apply')!;
     expect(apply.textContent).toBe('Aplicar 2 cambios en 1 nota');
+    expect(apply.disabled).toBe(false);
+    buttonByText(el, 'Desmarcar todo').click();
     expect(apply.disabled).toBe(true);
   });
 
@@ -276,5 +279,75 @@ describe('modelo', () => {
     expect(linePreview(body, links, key, null)?.after).toBe('Ver [[Cancion#Letra|la canción]] ahora.');
     expect(linePreview('nada', [], key, null)).toBeNull();
     await fake.dispose();
+  });
+});
+
+
+describe('aplicar desde la pestaña', () => {
+  const mountApplying = (fake: ReturnType<typeof makeFake>, review: ReviewData) => {
+    const el = document.createElement('div');
+    document.body.append(el);
+    const stub = stubHost((model) =>
+      applyChecked(model, { vault: fake.api.vault, markdown: markdownOf(fake), isLockedError: (e) => (e as { code?: string })?.code === 'note-locked' })
+    );
+    const mounted = mountResults(el, review, stub.host);
+    return { el, mounted, ...stub };
+  };
+
+  it('«Aplicando…» mientras escribe; después el resumen con el foco, «Hecho» con «Deshacer desde la nota» y los recuentos al día', async () => {
+    const { review, fake } = await varied();
+    const { el, calls } = mountApplying(fake, review);
+    const apply = el.querySelector<HTMLButtonElement>('.hebra-mantenimiento-apply')!;
+    apply.click();
+    expect(apply.textContent).toBe('Aplicando…');
+    expect(apply.disabled).toBe(true);
+    expect(buttonByText(el, 'Desmarcar todo').disabled).toBe(true);
+    await flush();
+    await flush();
+    const summary = el.querySelector<HTMLElement>('.hebra-mantenimiento-summary')!;
+    expect(summary.textContent).toBe('Aplicados 2 cambios en 1 nota.');
+    expect(summary.dataset.state).toBe('done');
+    expect(document.activeElement).toBe(summary);
+    const row = rowsOf(el).find((r) => r.textContent?.includes('Origen uno'))!;
+    expect(row.textContent).toContain('✓ Hecho');
+    buttonByText(row, 'Deshacer desde la nota').click();
+    expect(calls.opened).toEqual(['o1']);
+    expect(headings(el)[0]).toBe('Enlaces rotos (3, 0 con arreglo marcado)');
+    expect(apply.textContent).toBe('Aplicar cambios');
+    expect(apply.disabled).toBe(true);
+    expect((await fake.api.vault.noteRead('o1'))!.body).toContain('[[Canción]] y [[Canción]]');
+  });
+
+  it('una nota que cambió mientras tanto lleva su motivo y el resumen avisa (aplicado con avisos)', async () => {
+    const { review, fake } = await varied();
+    const { el } = mountApplying(fake, review);
+    // La fila de «Origen cuatro» se marca eligiendo destino; «Origen uno» ya iba marcada.
+    const select = rowsOf(el).find((r) => r.textContent?.includes('Origen cuatro'))!.querySelector('select')!;
+    select.value = select.options[1].value;
+    select.dispatchEvent(new Event('change'));
+    fake.host.touchNote('o4', '---\ndescripcion: x\n---\n# Origen cuatro\n\n[[Plan x]] editada\n');
+    el.querySelector<HTMLButtonElement>('.hebra-mantenimiento-apply')!.click();
+    await flush();
+    await flush();
+    const summary = el.querySelector<HTMLElement>('.hebra-mantenimiento-summary')!;
+    expect(summary.textContent).toBe('Aplicados 2 cambios en 1 nota. 1 nota cambió mientras tanto y no se tocó.');
+    expect(summary.dataset.state).toBe('with-warnings');
+    const failedRow = rowsOf(el).find((r) => r.textContent?.includes('Origen cuatro'))!;
+    expect(failedRow.textContent).toContain('✗ Cambió desde la revisión: no se tocó');
+    expect(failedRow.querySelector<HTMLInputElement>('input[type=checkbox]')!.disabled).toBe(true);
+  });
+
+  it('«Sin enlaces entrantes» se actualiza: la nota a la que ahora llega un enlace deja de ser huérfana', async () => {
+    const { review, fake } = await varied();
+    const { el } = mountApplying(fake, review);
+    const count = (): number => Number(/\((\d+)\)/.exec(headings(el)[3])![1]);
+    const titles = (): string[] => review.orphans.flatMap((g) => g.notes).map((n) => n.title);
+    expect(titles()).toContain('Canción');
+    const before = count();
+    el.querySelector<HTMLButtonElement>('.hebra-mantenimiento-apply')!.click();
+    await flush();
+    await flush();
+    expect(titles()).not.toContain('Canción');
+    expect(count()).toBe(before - 1);
   });
 });
