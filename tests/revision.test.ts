@@ -312,3 +312,55 @@ describe('N1 a N3', () => {
     expect(out.body).toBe('[[Música/Canción|Cancion]]');
   });
 });
+
+describe.skipIf(real === null)('Regresión de B2: notas SIN frontmatter con enlaces y descripción (Hebra real)', () => {
+  const md = real as PluginMarkdown;
+  it.each([
+    ['criterio 15 sin frontmatter', 'Esto es *una* prueba con [[Enlace|alias]].\n', 'Esto es una prueba con alias.'],
+    ['párrafo y enlace', 'Primer párrafo.\n\nVer [[Otra]].\n', 'Primer párrafo.'],
+    ['con H1', '# Título\n\nPárrafo con [[Otra]].\n', 'Párrafo con Otra.'],
+    ['CRLF', 'Párrafo [[Otra]].\r\n', 'Párrafo Otra.']
+  ])('%s: se escribe y se relee', async (_n, source, proposal) => {
+    const fake = makeFake({ n: source, otra: `${FM}# Otra\n`, enlace: `${FM}# Enlace\n` });
+    const model = await modelWith(fake, md);
+    const row = descRows(model).find((r) => r.id === 'n')!;
+    expect(row.item.proposal).toBe(proposal);
+    setChecked(model, 'n', true);
+    const s = spy(fake);
+    await applyChecked(model, deps(fake, s, md));
+    expect(row.outcome).toEqual({ state: 'done', text: 'Hecho' });
+    const body = await bodyOf(fake, 'n');
+    expect(md.frontmatter(body)?.descripcion).toBe(proposal);
+    expect(md.links(body).length).toBe(md.links(source).length);
+    await fake.dispose();
+  });
+
+  it('la misma nota con un arreglo de enlace marcado además de la descripción', async () => {
+    const source = 'Primer párrafo con [[Cancion]].\n';
+    const fake = makeFake({ n: source, c: `${FM}# Canción\n` });
+    const model = await modelWith(fake, md);
+    expect(linkRows(model)[0].checked).toBe(true);
+    setChecked(model, 'n', true);
+    await applyChecked(model, deps(fake, spy(fake), md));
+    expect(linkRows(model)[0].outcome?.state).toBe('done');
+    expect(descRows(model)[0].outcome?.state).toBe('done');
+    const body = await bodyOf(fake, 'n');
+    expect(md.frontmatter(body)?.descripcion).toBe('Primer párrafo con Cancion.');
+    expect(body).toContain('[[Canción]]');
+    await fake.dispose();
+  });
+});
+
+describe('M1: un H1 con sangría de hasta 3 espacios también da el título', () => {
+  it.each(['  # Reunión con [[Cancion]]', '   # Reunión con [[Cancion]]'])('%j', async (h1) => {
+    const source = `${h1}\n\nTexto\n`;
+    // Hebra saca el título de ese H1 con sangría; el falso no, así que se siembra igual.
+    const fake = makeFake({ o: { body: source, title: 'Reunión con [[Cancion]]' }, c: `${FM}# Canción\n` });
+    const model = await modelWith(fake, markdownOf(fake));
+    const row = linkRows(model)[0];
+    await applyChecked(model, deps(fake, spy(fake)));
+    expect(row.outcome?.text).toBe(REASON_TEXT.title);
+    expect(await bodyOf(fake, 'o')).toBe(source);
+    await fake.dispose();
+  });
+});
