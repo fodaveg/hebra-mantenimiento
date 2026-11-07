@@ -9,6 +9,7 @@
     "typecheck": "tsc -noEmit -skipLibCheck",
     "release:sign-publish": "node scripts/sign-publish.mjs",
     "build:hebra": "node scripts/build-hebra.mjs",
+    "release:check": "node scripts/release-check.mjs",
     "build:real-markdown": "node scripts/bundle-hebra-markdown.mjs",
     "lint": "eslint .",
     "test": "vitest run --maxWorkers=1",

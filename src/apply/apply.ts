@@ -207,7 +207,7 @@ function inTitleLine(body: string, from: number, title: string, hasTitleProperty
   const start = body.lastIndexOf('\n', from - 1) + 1;
   const end = body.indexOf('\n', from);
   const line = body.slice(start, end < 0 ? body.length : end).replace(/\r$/, '');
-  const heading = /^#\s+(.*?)\s*#*$/.exec(line);
+  const heading = /^ {0,3}#\s+(.*?)\s*#*$/.exec(line);
   return heading !== null && canonical(heading[1]) === canonical(title);
 }
 
@@ -284,8 +284,10 @@ function compute(
         descriptionOk = true;
       }
     }
-    const before = markdown.frontmatterRange(rewritten.body)?.end ?? 0;
-    const baseShift = descriptionOk ? (markdown.frontmatterRange(next)?.end ?? 0) - before : 0;
+    // Todo lo que sigue al frontmatter se desplaza lo que creció el cuerpo: `writeDescription` ya
+    // garantiza que el texto tras el frontmatter no cambia. (Con `frontmatterRange(...).end` salía
+    // corto: el `setProperty` real añade una línea en blanco tras el `---` que el rango no cuenta.)
+    const baseShift = descriptionOk ? next.length - rewritten.body.length : 0;
     if (verifyRewrite(links, markdown.links(next), fixes, rewritten.edits, baseShift)) chosen = { next, descriptionOk };
   }
   if (chosen === null) {

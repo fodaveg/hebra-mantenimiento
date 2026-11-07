@@ -130,7 +130,8 @@ export function markdownOf(fake: FakePluginApiV2): ApplyMarkdown {
     setProperty: (body, key, value) => {
       const line = value === null ? null : `${key}: ${JSON.stringify(value)}`;
       const match = block.exec(body);
-      if (!match) return line === null ? body : `---\n${line}\n---\n${body}`;
+      // Como el real: sin frontmatter crea el bloque y deja una línea en blanco detrás.
+      if (!match) return line === null ? body : `---\n${line}\n---\n\n${body}`;
       const kept = match[1].split('\n').filter((l) => !l.startsWith(`${key}:`));
       if (line !== null) kept.push(line);
       return `---\n${kept.join('\n')}\n---${match[2]}${body.slice(match[0].length)}`;
