@@ -1,0 +1,27 @@
+{
+  "name": "hebra-mantenimiento",
+  "version": "0.1.0",
+  "description": "Hebra plugin: finds broken links, notes without a description, duplicate folders and orphan notes, and proposes fixes with a preview.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -noEmit -skipLibCheck",
+    "release:sign-publish": "node scripts/sign-publish.mjs",
+    "build:hebra": "node scripts/build-hebra.mjs",
+    "lint": "eslint .",
+    "test": "vitest run --maxWorkers=1",
+    "check": "npm run lint && npm run typecheck && npm run build:hebra && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "0.28.2",
+    "eslint": "^9.30.1",
+    "happy-dom": "^20.14.5",
+    "hebra-plugin-api": "github:fodaveg/hebra-plugin-api#v2.2.0",
+    "typescript": "^5.4.5",
+    "typescript-eslint": "^8.35.1",
+    "vite": "^7.0.0",
+    "vitest": "^5.0.4"
+  }
+}

@@ -1,0 +1,196 @@
+name: Release
+
+# Owns the tag path up to a verified DRAFT. Order matters, and nothing is public until everything
+# is proven and signed:
+#
+#   1. the tag's commit must be on origin/main, and release-notes/<tag>.md must exist
+#      (both checked before any build is spent);
+#   2. the gate (`npm run check`, skipped when ci.yml's `check` job already passed on this SHA; it also builds the Hebra plugin and its hebra.json) and
+#      the tag/package.json/hebra.json agreement;
+#   3. the sha256 of the three assets is computed HERE, from the build output, before upload:
+#      that file is the reference everything else is compared with;
+#   4. a build-provenance attestation is made for exactly those hashes;
+#   5. the release is created as a DRAFT with the three loose assets (`hebra.json`,
+#      `hebra-main.mjs`, `hebra-styles.css`, never a zip) and the notes from the versioned
+#      file, then every asset is downloaded back and compared with the reference, with the
+#      digest GitHub itself computed and with its attestation;
+#   6. the workflow STOPS there and leaves the verified draft. If anything before that fails,
+#      the draft is deleted;
+#   7. the draft is signed and published from the maintainer's machine: `npm run
+#      release:sign-publish -- <tag>` (scripts/sign-publish.mjs). Hebra only installs a plugin
+#      whose release carries `hebra.json.minisig`, a minisign signature of the exact bytes of
+#      `hebra.json` made with a private key that must never reach GitHub, so CI cannot sign.
+#      Releases are immutable once published and an asset cannot be added afterwards: the
+#      signature has to be in the draft BEFORE publishing. That script waits for this run,
+#      re-checks the draft, signs, uploads the signature, publishes and checks the release is
+#      immutable and has seven assets. The immutable setting (Settings > Releases, "Immutable
+#      releases") is not something this workflow can turn on: it is checked here before the
+#      draft is created, and by that script after publishing.
+#
+# Hashes prove correspondence; the attestation is what proves provenance.
+#
+# `contents: write` (and the attestation permissions) live in the job only. ci.yml runs on
+# every branch and pull request and stays read-only. Actions are pinned by commit SHA; the
+# comment names the release, and Dependabot (.github/dependabot.yml) proposes the updates.
+#
+# This file cannot be run outside a tag push.
+
+on:
+  push:
+    tags: ['*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      checks: read
+    env:
+      TAG: ${{ github.ref_name }}
+      REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # Reuse ci.yml: if its `check` job already succeeded on this exact SHA, `npm run check` is not repeated.
+      # Any doubt (no run yet, failed, query error) leaves ok=false and the gate runs as before.
+      - name: Look up the green CI check for this commit
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          conclusion=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?check_name=check&filter=latest" \
+            --jq '[.check_runs[] | select(.app.slug == "github-actions")] | sort_by(.started_at) | last | .conclusion // ""' 2>/dev/null) || conclusion=""
+          if [ "$conclusion" = "success" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            echo "ci.yml job 'check' already passed on $GITHUB_SHA: the repeated step is skipped"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "no green 'check' check-run for $GITHUB_SHA (got '${conclusion:-none}'): the gate runs here"
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false  # the repository is public: the later `git fetch` needs no token
+
+      - name: Refuse a tag whose commit is not on origin/main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::tag $TAG points at $GITHUB_SHA, which is not in origin/main: merge it first"
+            exit 1
+          fi
+
+      - name: Refuse a tag without versioned release notes
+        run: |
+          set -euo pipefail
+          test -s "release-notes/$TAG.md" || { echo "::error::release-notes/$TAG.md is missing or empty: write the notes in the tagged commit"; exit 1; }
+
+      - name: Refuse to start if the repository does not make releases immutable
+        run: |
+          set -euo pipefail
+          # Best effort: the token may not be allowed to read the setting. The check after
+          # publishing is the one that cannot be skipped.
+          if ENABLED=$(gh api "repos/$REPO/immutable-releases" --jq .enabled 2>/dev/null); then
+            test "$ENABLED" = "true" || { echo "::error::immutable releases are not enabled for $REPO (Settings > Releases)"; exit 1; }
+          else
+            echo "::warning::cannot read the immutable-releases setting with this token; it is checked after publishing"
+          fi
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+
+      - name: Gate
+        if: steps.ci.outputs.ok != 'true'
+        run: npm run check
+
+      # `npm run check` also produces the assets that are hashed and uploaded below
+      # (hebra.json, hebra-main.mjs, hebra-styles.css), so when the gate is skipped the
+      # build still runs here.
+      - name: Build the assets (gate skipped, CI was green)
+        if: steps.ci.outputs.ok == 'true'
+        run: npm run build:hebra
+
+      - name: Refuse a tag that is not the manifest version
+        run: |
+          set -euo pipefail
+          PKG=$(node -p "require('./package.json').version")
+          HEBRA=$(node -p "require('./hebra.json').version")
+          test "$TAG" = "$PKG" || { echo "tag $TAG != package.json $PKG"; exit 1; }
+          test "$TAG" = "$HEBRA" || { echo "tag $TAG != hebra.json $HEBRA"; exit 1; }
+
+      - name: Reference hashes, taken from the build output before anything is uploaded
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/reference"
+          sha256sum hebra.json hebra-main.mjs hebra-styles.css > "$RUNNER_TEMP/reference/SHA256SUMS"
+          cat "$RUNNER_TEMP/reference/SHA256SUMS"
+          cp "$RUNNER_TEMP/reference/SHA256SUMS" "$GITHUB_WORKSPACE/SHA256SUMS.reference"
+
+      - name: Attest build provenance of exactly those hashes
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: SHA256SUMS.reference
+
+      - name: Create the draft release
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            hebra.json hebra-main.mjs hebra-styles.css \
+            --draft --verify-tag \
+            --title "$TAG" \
+            --notes-file "release-notes/$TAG.md"
+          RELEASE_ID=$(gh api "repos/$REPO/releases" --jq "map(select(.draft and .tag_name == \"$TAG\")) | first | .id")
+          test -n "$RELEASE_ID" && test "$RELEASE_ID" != "null" || { echo "::error::the draft for $TAG was not found"; exit 1; }
+          echo "RELEASE_ID=$RELEASE_ID" >> "$GITHUB_ENV"
+
+      - name: Verify the draft against the reference, GitHub's digests and the attestation
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/published"
+          mkdir -p "$DIR"
+          gh api "repos/$REPO/releases/$RELEASE_ID/assets" > "$RUNNER_TEMP/assets.json"
+          jq -r '.[] | "\(.id) \(.name)"' "$RUNNER_TEMP/assets.json" | while read -r ID NAME; do
+            gh api -H "Accept: application/octet-stream" "repos/$REPO/releases/assets/$ID" > "$DIR/$NAME"
+          done
+          node scripts/verify-release.mjs "$RUNNER_TEMP/reference/SHA256SUMS" "$DIR" "$RUNNER_TEMP/assets.json" "$TAG"
+          for FILE in "$DIR"/*; do
+            gh attestation verify "$FILE" --repo "$REPO" --signer-workflow "$REPO/.github/workflows/release.yml"
+          done
+
+      - name: Leave the verified draft for signing
+        run: |
+          echo "::notice::draft $TAG verified and left unpublished: sign and publish it with 'npm run release:sign-publish -- $TAG'"
+
+      # A failure before the draft is verified must not leave a half-built draft behind, also when the failure
+      # came between `gh release create` and RELEASE_ID being recorded. It looks the release up by
+      # tag, and only deletes it if it exists and is still a draft: never a published release.
+      - name: Remove the draft if the run failed before publishing
+        if: failure()
+        run: |
+          set -euo pipefail
+          ID="${RELEASE_ID:-}"
+          if [ -z "$ID" ]; then
+            ID=$(gh api "repos/$REPO/releases" --paginate --jq ".[] | select(.draft == true and .tag_name == \"$TAG\") | .id" | head -n 1 || true)
+          fi
+          if [ -z "$ID" ]; then
+            echo "no draft for $TAG to remove"
+            exit 0
+          fi
+          if [ "$(gh api "repos/$REPO/releases/$ID" --jq .draft)" = "true" ]; then
+            gh api -X DELETE "repos/$REPO/releases/$ID"
+            echo "::warning::the draft for $TAG was deleted because the run failed"
+          fi
