@@ -13,7 +13,7 @@ Busca, y enseña antes de tocar nada:
 
 Cada arreglo se propone con una vista previa y solo se aplica lo que la persona marca.
 
-> Estado: 0.1.0 es el esqueleto. Registra el comando «Mantenimiento: revisar la biblioteca», un botón en el raíl y la pestaña «Mantenimiento» con su estado vacío (el botón «Revisar la biblioteca» sigue deshabilitado). La revisión llega en las siguientes versiones.
+> Estado: 0.1.1. Revisa la biblioteca, enseña los resultados por tipo con vista previa y aplica lo que se marca. La pestaña tiene el aspecto de Ajustes de Hebra (letra, botones, campos y casillas de Hebra, en claro y oscuro) aunque Hebra no le dé su hoja base.
 
 ## Qué no hace nunca
 
@@ -44,7 +44,7 @@ npm test             # vitest run --maxWorkers=1
 ```
 
 - `src/main.ts`: `activate(api)`; registra comando, raíl y vista de pestaña.
-- `src/panel.ts` y `src/hebra-styles.css`: la pestaña. Solo variables CSS de Hebra, sin colores propios.
+- `src/panel.ts`, `src/results/view.ts` y `src/hebra-styles.css`: la pestaña. Solo variables CSS de Hebra, cada una con un valor de reserva, sin colores propios. La letra Figtree (`src/fonts/`, licencia SIL OFL 1.1 en `src/fonts/OFL-Figtree.txt`) la mete el build en `hebra-styles.css` como `data:`, porque el marco del plugin solo admite letras `data:` o de su origen.
 - `scripts/build-hebra.mjs`: construye el módulo, pasa el guardarraíl (sin imports, sin `node:`, sin llamadas prohibidas) y genera `hebra.json` con los sha256.
 - `scripts/verify-release.mjs` y `scripts/sign-publish.mjs`: verifican el borrador de la release (tres ficheros) y lo firman y publican desde la máquina de la autora (`npm run release:sign-publish -- <tag>`). La clave privada vive en `~/.config/hebra-plugin-signing/hebra-mantenimiento.key` y nunca entra en el repositorio.
 

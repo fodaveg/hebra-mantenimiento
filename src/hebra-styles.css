@@ -1,204 +1,692 @@
-/* Estilos de la pestaña «Mantenimiento» (`src/panel.ts`). Solo variables CSS de Hebra: ningún
-   color propio, para que sigan el tema claro u oscuro. */
+/* Estilos de la pestaña «Mantenimiento» (`src/panel.ts`, `src/results/view.ts`), con el aspecto
+   de Ajustes de Hebra: cabecera con título grande, tarjetas con filete, botones planos rellenos
+   sin borde (`--control-fill`), el principal relleno de acento, casillas dibujadas y el anillo
+   de foco de Hebra.
+
+   Todo sale de las variables CSS de Hebra, cada una con un valor de reserva, y la pestaña lleva
+   su propia letra: la de interfaz de Hebra (`--ui`) y, embebida, Figtree, la del tema de serie
+   (el build la mete en `data:`, ver `scripts/build-hebra.mjs`). Así se ve bien aunque Hebra no
+   ponga en el marco su hoja base (Hebra anterior al 7 nov 2026). Ningún color propio: sigue el
+   tema claro u oscuro. Todo va acotado a `.hebra-mantenimiento`. */
+
+/* Figtree (subconjunto latin, wght 300-900): Copyright 2022 The Figtree Project Authors
+   (https://github.com/erikdkennedy/figtree), bajo la SIL Open Font License 1.1
+   (https://openfontlicense.org; texto completo en src/fonts/OFL-Figtree.txt del repositorio). */
+@font-face {
+  font-family: 'Figtree Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300 900;
+  src: url('./fonts/figtree-latin-wght-normal.woff2') format('woff2-variations');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* La mono de Hebra (`--mono`, JetBrains Mono) no viaja en el marco: su nombre se apunta a la
+   mono del sistema, como hace la hoja base de Hebra. Sin esto, las vistas previas salían en
+   Courier. */
+@font-face {
+  font-family: 'JetBrains Mono Variable';
+  font-style: normal;
+  font-display: swap;
+  src:
+    local('SF Mono Regular'), local('SFMono-Regular'), local('Menlo Regular'), local('Menlo-Regular'),
+    local('Consolas'), local('DejaVu Sans Mono'), local('DejaVuSansMono'), local('Liberation Mono'),
+    local('LiberationMono');
+}
+
 .hebra-mantenimiento {
+  /* Variables locales: la de Hebra o, si no llega, su valor del tema claro de serie. */
+  --hm-ink: var(--ink, CanvasText);
+  --hm-body: var(--body, var(--hm-ink));
+  --hm-muted: var(--muted, #5e5b55);
+  --hm-line: var(--line, #dfdeda);
+  --hm-soft-line: var(--soft-line, var(--hm-line));
+  --hm-surface: var(--base-surface, transparent);
+  --hm-code: var(--code-surface, color-mix(in srgb, currentColor 4%, transparent));
+  --hm-accent: var(--accent, #0f7b7a);
+  --hm-on-accent: var(--on-accent, #f7f6f2);
+  --hm-accent-text: var(--accent-text, var(--hm-accent));
+  --hm-focus: var(--focus, var(--hm-accent));
+  --hm-control: var(--control-fill, color-mix(in srgb, currentColor 9%, transparent));
+  --hm-control-hover: var(--control-fill-hover, color-mix(in srgb, currentColor 14%, transparent));
+  --hm-hover: var(--state-hover, color-mix(in srgb, currentColor 6%, transparent));
+  --hm-success: var(--success, var(--hm-accent));
+  --hm-success-ink: var(--success-ink, var(--hm-accent-text));
+  --hm-success-soft: var(--success-soft, color-mix(in srgb, var(--hm-success) 12%, transparent));
+  --hm-warning: var(--warning, #b7791f);
+  --hm-warning-ink: var(--warning-ink, var(--hm-ink));
+  --hm-warning-soft: var(--warning-soft, color-mix(in srgb, var(--hm-warning) 14%, transparent));
+  --hm-danger-ink: var(--danger-ink, #b3261e);
+  --hm-radius-ui: var(--radius-ui, 14px);
+  --hm-radius-control: var(--radius-control, 8px);
+  --hm-radius-pill: var(--radius-pill, 999px);
+  --hm-hit: var(--hit-pointer, 32px);
+  --hm-hit-touch: var(--hit-touch, 44px);
+  --hm-font: var(--ui, 'Figtree Variable', system-ui, sans-serif);
+  --hm-display: var(--display, var(--hm-font));
+  --hm-mono: var(--mono, ui-monospace, monospace);
+  --hm-fs-xs: var(--type-ui-xs, 0.6875rem);
+  --hm-fs-sm: var(--type-ui-sm, 0.75rem);
+  --hm-fs-md: var(--type-ui-md, 0.8125rem);
+  --hm-fs-lg: var(--type-ui-lg, 0.9375rem);
+  --hm-s1: var(--space-1, 0.25rem);
+  --hm-s2: var(--space-2, 0.5rem);
+  --hm-s3: var(--space-3, 0.75rem);
+  --hm-s4: var(--space-4, 1rem);
+  --hm-s5: var(--space-5, 1.25rem);
+  --hm-s6: var(--space-6, 1.5rem);
+  --hm-s8: var(--space-8, 2rem);
+  --hm-s10: var(--space-10, 2.5rem);
+
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-3);
-  max-width: 40rem;
-  padding: var(--space-4);
+  gap: var(--hm-s5);
+  width: 100%;
+  max-width: 48rem;
+  padding: var(--hm-s8) var(--hm-s10) var(--hm-s10);
+  container-type: inline-size;
+  color: var(--hm-ink);
+  font-family: var(--hm-font);
+  font-size: var(--hm-fs-md);
+  font-synthesis: none;
+  line-height: 1.4;
+}
+
+html[data-hebra-theme='hebra'][data-mode='dark'] .hebra-mantenimiento {
+  -webkit-font-smoothing: antialiased;
+}
+
+.hebra-mantenimiento *,
+.hebra-mantenimiento *::before,
+.hebra-mantenimiento *::after {
+  box-sizing: border-box;
+}
+
+/* Las clases de abajo ponen `display`, que gana al `display: none` del atributo `hidden` del
+   navegador: sin esto, el aviso de «La biblioteca ha cambiado» salía siempre (0.1.0). */
+.hebra-mantenimiento [hidden] {
+  display: none !important;
+}
+
+/* En un marco estrecho (iPhone, columna), menos aire. El marco es la ventana: `@media` mide
+   su ancho. */
+@media (max-width: 36rem) {
+  .hebra-mantenimiento {
+    gap: var(--hm-s4);
+    padding: var(--hm-s5) var(--hm-s4) var(--hm-s8);
+  }
+}
+
+/* ---- Controles: los de Ajustes de Hebra ---- */
+.hebra-mantenimiento button {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--hm-s2);
+  min-height: var(--hm-hit);
+  margin: 0;
+  padding: 0 var(--hm-s4);
+  border: 0;
+  border-radius: var(--hm-radius-control);
+  background: var(--hm-control);
+  color: var(--hm-ink);
+  font: inherit;
+  font-size: var(--hm-fs-md);
+  font-weight: 500;
+  line-height: 1.2;
+  text-align: center;
+  cursor: pointer;
+}
+
+.hebra-mantenimiento button:not(:disabled):hover {
+  background: var(--hm-control-hover);
+}
+
+.hebra-mantenimiento button:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+
+/* La acción principal de la pantalla: relleno de acento (`.lv1-setting-primary`). */
+.hebra-mantenimiento .hebra-mantenimiento-run,
+.hebra-mantenimiento .hebra-mantenimiento-apply {
+  background: var(--hm-accent);
+  color: var(--hm-on-accent);
+  font-weight: 600;
+}
+
+.hebra-mantenimiento .hebra-mantenimiento-run:not(:disabled):hover,
+.hebra-mantenimiento .hebra-mantenimiento-apply:not(:disabled):hover {
+  background: color-mix(in srgb, var(--hm-accent) 88%, var(--hm-ink));
+}
+
+/* Acciones de fila («Abrir», «Ver carpeta», «Deshacer desde la nota»): sin relleno, en el
+   color de enlace de Hebra, para que una lista de 200 filas no sea una pared de botones. */
+.hebra-mantenimiento .hebra-mantenimiento-open {
+  flex: none;
+  min-height: calc(var(--hm-hit) - 4px);
+  padding: 0 var(--hm-s2);
+  background: transparent;
+  color: var(--hm-accent-text);
+}
+
+.hebra-mantenimiento .hebra-mantenimiento-open:not(:disabled):hover {
+  background: var(--hm-hover);
+}
+
+.hebra-mantenimiento select {
+  min-width: 0;
+  max-width: 100%;
+  min-height: var(--hm-hit);
+  padding: 0 var(--hm-s3);
+  border: 0;
+  border-radius: var(--hm-radius-control);
+  background: var(--hm-control);
+  color: var(--hm-ink);
+  font: inherit;
+  font-size: var(--hm-fs-md);
+}
+
+.hebra-mantenimiento select:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+
+/* La casilla dibujada de Hebra (`app.css`): el control nativo pinta un anillo cuadrado. */
+.hebra-mantenimiento input[type='checkbox'] {
+  appearance: none;
+  display: inline-grid;
+  flex: none;
+  place-content: center;
+  width: var(--hm-s4);
+  height: var(--hm-s4);
+  margin: 0;
+  border: 1px solid var(--hm-muted);
+  border-radius: var(--radius-checkbox, 6px);
+  background: var(--panel, transparent);
+  cursor: pointer;
+}
+
+.hebra-mantenimiento input[type='checkbox']:checked {
+  border-color: var(--hm-accent);
+  background: var(--hm-accent);
+}
+
+.hebra-mantenimiento input[type='checkbox']:checked::before {
+  content: '';
+  width: 8px;
+  height: 4px;
+  border: solid var(--hm-on-accent);
+  border-width: 0 0 2px 2px;
+  transform: translateY(-1px) rotate(-45deg);
+}
+
+.hebra-mantenimiento input[type='checkbox']:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+
+.hebra-mantenimiento :focus-visible {
+  outline: var(--focus-ring-width, 2px) solid var(--hm-focus);
+  outline-offset: var(--focus-ring-offset, 2px);
+}
+
+.hebra-mantenimiento-summary:focus,
+.hebra-mantenimiento-summary:focus-visible {
+  outline: none;
+}
+
+@media (pointer: coarse) {
+  .hebra-mantenimiento button,
+  .hebra-mantenimiento select,
+  .hebra-mantenimiento .hebra-mantenimiento-check {
+    min-height: var(--hm-hit-touch);
+  }
+
+  .hebra-mantenimiento select {
+    font-size: var(--type-ui-field-touch, 1rem);
+  }
+}
+
+/* ---- Cabecera ---- */
+.hebra-mantenimiento-head {
+  display: grid;
+  gap: var(--hm-s2);
 }
 
 .hebra-mantenimiento-title {
   margin: 0;
-  color: var(--ink);
+  color: var(--hm-ink);
+  font: 700 calc(var(--type-doc-md, 1rem) * 1.5) / 1.1 var(--hm-display);
 }
 
 .hebra-mantenimiento-intro {
   margin: 0;
-  color: var(--muted);
-}
-
-.hebra-mantenimiento-run {
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--soft-line);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--ink);
-  font: inherit;
-}
-
-.hebra-mantenimiento-run:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* ---- Resultados (P5) ---- */
-.hebra-mantenimiento {
-  container-type: inline-size;
-  max-width: 56rem;
+  max-width: 40rem;
+  color: var(--hm-muted);
+  font-size: var(--hm-fs-md);
+  line-height: 1.45;
 }
 
 .hebra-mantenimiento-actions,
 .hebra-mantenimiento-toolbar,
 .hebra-mantenimiento-footer,
-.hebra-mantenimiento-pager,
-.hebra-mantenimiento-row-head,
+.hebra-mantenimiento-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hm-s2);
+}
+
+.hebra-mantenimiento-actions {
+  margin-top: var(--hm-s2);
+}
+
+/* ---- Progreso ---- */
+.hebra-mantenimiento-progress {
+  display: grid;
+  gap: var(--hm-s2);
+}
+
+.hebra-mantenimiento-progress:not(:has(> :not([hidden]))) {
+  display: none;
+}
+
+.hebra-mantenimiento-status {
+  margin: 0;
+  color: var(--hm-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.hebra-mantenimiento-bar {
+  position: relative;
+  width: 100%;
+  max-width: 24rem;
+  height: 4px;
+  overflow: hidden;
+  border-radius: var(--hm-radius-pill);
+  background: var(--hm-control);
+}
+
+.hebra-mantenimiento-bar-fill {
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--hm-accent);
+}
+
+/* Paso sin total (carpetas, buscar notas, buscar problemas): un tramo quieto, y moviéndose
+   solo si la persona no pidió menos movimiento. */
+.hebra-mantenimiento-bar[data-indeterminate] .hebra-mantenimiento-bar-fill {
+  width: 30%;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .hebra-mantenimiento-bar-fill {
+    transition: width 0.2s ease-out;
+  }
+
+  .hebra-mantenimiento-bar[data-indeterminate] .hebra-mantenimiento-bar-fill {
+    animation: hebra-mantenimiento-indeterminate 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes hebra-mantenimiento-indeterminate {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+
+/* ---- Aviso de cambios ---- */
 .hebra-mantenimiento-stale {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2);
+  justify-content: space-between;
+  gap: var(--hm-s2) var(--hm-s3);
+  padding: var(--hm-s2) var(--hm-s2) var(--hm-s2) var(--hm-s4);
+  border: 1px solid var(--hm-warning);
+  border-radius: var(--hm-radius-ui);
+  background: var(--hm-warning-soft);
+  color: var(--hm-ink);
 }
 
-.hebra-mantenimiento-stale {
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--panel);
-  color: var(--ink);
+.hebra-mantenimiento-stale-text {
+  font-weight: 500;
 }
 
+/* ---- Tarjetas (qué revisa, sin resultados, secciones) ---- */
+.hebra-mantenimiento-checks,
+.hebra-mantenimiento-empty,
+.hebra-mantenimiento-section {
+  border: 1px solid var(--hm-line);
+  border-radius: var(--hm-radius-ui);
+  background: var(--hm-surface);
+}
+
+.hebra-mantenimiento-checks,
+.hebra-mantenimiento-empty {
+  display: grid;
+  gap: var(--hm-s3);
+  padding: var(--hm-s5) var(--hm-s6);
+}
+
+@media (max-width: 36rem) {
+  .hebra-mantenimiento-checks,
+  .hebra-mantenimiento-empty {
+    padding: var(--hm-s4);
+  }
+}
+
+.hebra-mantenimiento-checks-title,
+.hebra-mantenimiento-empty-title {
+  margin: 0;
+  color: var(--hm-body);
+  font: 600 var(--hm-fs-lg) / 1.3 var(--hm-font);
+}
+
+.hebra-mantenimiento-checks-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hebra-mantenimiento-check-item {
+  display: grid;
+  gap: 2px;
+  padding: var(--hm-s3) 0;
+  border-top: 1px solid var(--hm-soft-line);
+}
+
+.hebra-mantenimiento-check-item:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.hebra-mantenimiento-check-name {
+  color: var(--hm-ink);
+  font-weight: 500;
+}
+
+.hebra-mantenimiento-check-text,
+.hebra-mantenimiento-checks-note,
+.hebra-mantenimiento-empty-text {
+  margin: 0;
+  color: var(--hm-muted);
+  font-size: var(--hm-fs-sm);
+  line-height: 1.45;
+}
+
+/* ---- Resultados ---- */
 .hebra-mantenimiento-results-box,
 .hebra-mantenimiento-results,
 .hebra-mantenimiento-sections {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  width: 100%;
+  display: grid;
+  gap: var(--hm-s3);
+  min-width: 0;
 }
 
-.hebra-mantenimiento-status,
-.hebra-mantenimiento-empty {
-  margin: 0;
-  color: var(--ink);
+.hebra-mantenimiento-results-box:empty {
+  display: none;
 }
 
-.hebra-mantenimiento-action,
-.hebra-mantenimiento-open,
-.hebra-mantenimiento-search,
-.hebra-mantenimiento-cancel,
-.hebra-mantenimiento-apply,
-.hebra-mantenimiento-section-toggle {
-  padding: var(--space-1) var(--space-3);
-  border: 1px solid var(--soft-line);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--ink);
-  font: inherit;
-  cursor: pointer;
-}
-
-.hebra-mantenimiento-apply:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.hebra-mantenimiento-results {
+  gap: var(--hm-s4);
 }
 
 .hebra-mantenimiento-section {
-  border: 1px solid var(--soft-line);
-  border-radius: var(--radius-sm);
-  background: var(--paper);
+  min-width: 0;
 }
 
 .hebra-mantenimiento-section-title {
   margin: 0;
-  font-size: var(--type-ui-sm);
+  font: inherit;
 }
 
-.hebra-mantenimiento-section-toggle {
+.hebra-mantenimiento .hebra-mantenimiento-section-toggle {
+  justify-content: flex-start;
+  gap: var(--hm-s3);
   width: 100%;
-  border: 0;
-  text-align: left;
+  min-height: var(--hm-hit-touch);
+  padding: 0 var(--hm-s4);
+  border-radius: var(--hm-radius-ui);
+  background: transparent;
+  color: var(--hm-ink);
   font-weight: 600;
+  text-align: start;
+}
+
+.hebra-mantenimiento .hebra-mantenimiento-section-toggle:not(:disabled):hover {
+  background: var(--hm-hover);
+}
+
+.hebra-mantenimiento-section-toggle[aria-expanded='true'] {
+  border-end-start-radius: 0;
+  border-end-end-radius: 0;
+}
+
+/* El chevrón de Hebra: a la derecha cerrado, hacia abajo abierto. */
+.hebra-mantenimiento-section-toggle::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-inline-end: 2px;
+  border-right: 1.5px solid var(--hm-muted);
+  border-bottom: 1.5px solid var(--hm-muted);
+  transform: rotate(-45deg);
 }
 
 .hebra-mantenimiento-section-toggle[aria-expanded='true']::before {
-  content: '\25BE\00a0';
+  transform: translateY(-2px) rotate(45deg);
 }
 
-.hebra-mantenimiento-section-toggle[aria-expanded='false']::before {
-  content: '\25B8\00a0';
+.hebra-mantenimiento-section-count {
+  color: var(--hm-muted);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
 }
 
 .hebra-mantenimiento-section-body {
-  padding: 0 var(--space-3) var(--space-3);
+  padding: 0 var(--hm-s4) var(--hm-s2);
+  border-top: 1px solid var(--hm-soft-line);
 }
 
 .hebra-mantenimiento-group-title {
-  margin: var(--space-3) 0 var(--space-2);
-  color: var(--muted);
-  font-size: var(--type-ui-xs);
+  margin: var(--hm-s4) 0 var(--hm-s1);
+  color: var(--hm-muted);
+  font-size: var(--hm-fs-sm);
   font-weight: 600;
+}
+
+.hebra-mantenimiento-group > summary.hebra-mantenimiento-group-title {
+  display: flex;
+  align-items: center;
+  min-height: var(--hm-hit);
+  margin: var(--hm-s2) 0 0;
+  border-radius: var(--hm-radius-control);
+  cursor: pointer;
 }
 
 .hebra-mantenimiento-rows,
 .hebra-mantenimiento-folder-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
+  display: grid;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .hebra-mantenimiento-row {
+  display: grid;
+  gap: var(--hm-s2);
+  min-width: 0;
+  padding: var(--hm-s3) 0;
+  border-top: 1px solid var(--hm-soft-line);
+}
+
+/* Un botón suelto en la fila («Buscar») mide lo que su texto, no toda la fila. */
+.hebra-mantenimiento-row > button {
+  justify-self: start;
+}
+
+.hebra-mantenimiento-rows > .hebra-mantenimiento-row:first-child {
+  border-top: 0;
+}
+
+.hebra-mantenimiento-row-head {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--soft-line);
-  border-radius: var(--radius-sm);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--hm-s2);
+  min-width: 0;
 }
 
 .hebra-mantenimiento-row-title {
-  color: var(--ink);
+  min-width: 0;
+  color: var(--hm-ink);
+  font-weight: 500;
+  overflow-wrap: anywhere;
 }
 
 .hebra-mantenimiento-meta,
 .hebra-mantenimiento-target,
 .hebra-mantenimiento-note,
+.hebra-mantenimiento-preview-count,
 .hebra-mantenimiento-pager-range {
   margin: 0;
-  color: var(--muted);
-  font-size: var(--type-ui-sm);
-}
-
-.hebra-mantenimiento-preview {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1) var(--space-4);
-}
-
-.hebra-mantenimiento-preview-line {
-  margin: 0;
-  min-width: 0;
+  color: var(--hm-muted);
+  font-size: var(--hm-fs-sm);
   overflow-wrap: anywhere;
 }
 
-.hebra-mantenimiento-preview-label {
-  color: var(--muted);
-  font-size: var(--type-ui-xs);
-  font-weight: 600;
+.hebra-mantenimiento-note:empty {
+  display: none;
 }
 
-/* En estrecho, antes y después se apilan. */
-@container (max-width: 36rem) {
-  .hebra-mantenimiento-preview {
-    flex-direction: column;
+/* Antes y después: una caja de código, etiqueta a la izquierda; en estrecho se apila. */
+.hebra-mantenimiento-preview {
+  display: grid;
+  gap: var(--hm-s1);
+  min-width: 0;
+  padding: var(--hm-s2) var(--hm-s3);
+  border-radius: var(--hm-radius-control);
+  background: var(--hm-code);
+}
+
+.hebra-mantenimiento-preview-line {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--hm-s2);
+  min-width: 0;
+  margin: 0;
+}
+
+.hebra-mantenimiento-preview-label {
+  color: var(--hm-muted);
+  font-size: var(--hm-fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.hebra-mantenimiento-preview-text {
+  min-width: 0;
+  color: var(--hm-ink);
+  font-family: var(--hm-mono);
+  font-size: var(--hm-fs-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@container (max-width: 30rem) {
+  .hebra-mantenimiento-preview-line {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
   }
 }
 
-.hebra-mantenimiento-check {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--ink);
-}
-
+.hebra-mantenimiento-check,
 .hebra-mantenimiento-select-label {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2);
-  color: var(--ink);
+  gap: var(--hm-s2);
+  min-height: var(--hm-hit);
+  color: var(--hm-ink);
+}
+
+.hebra-mantenimiento-check {
+  justify-self: start;
+  cursor: pointer;
+}
+
+.hebra-mantenimiento-select-label {
+  display: flex;
+}
+
+.hebra-mantenimiento-candidates {
+  flex: 1 1 14rem;
+}
+
+.hebra-mantenimiento-folder {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--hm-s2);
+  padding: var(--hm-s1) 0;
+}
+
+.hebra-mantenimiento-folder-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Hecho o no aplicado: el texto lo dice (✓ / ✗), el color solo acompaña. */
+.hebra-mantenimiento-outcome {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hm-s2);
+  font-size: var(--hm-fs-sm);
+  font-weight: 500;
+}
+
+.hebra-mantenimiento-outcome[data-state='done'] {
+  color: var(--hm-success-ink);
+}
+
+.hebra-mantenimiento-outcome:not([data-state='done']) {
+  color: var(--hm-danger-ink);
+}
+
+.hebra-mantenimiento-footer {
+  padding-top: var(--hm-s1);
+}
+
+.hebra-mantenimiento-summary {
+  margin: 0;
+  padding: var(--hm-s3) var(--hm-s4);
+  border-left: 3px solid var(--hm-success);
+  border-radius: var(--hm-radius-control);
+  background: var(--hm-success-soft);
+  color: var(--hm-ink);
+}
+
+.hebra-mantenimiento-summary[data-state='with-warnings'] {
+  border-left-color: var(--hm-warning);
+  background: var(--hm-warning-soft);
+}
+
+.hebra-mantenimiento-pager {
+  padding: var(--hm-s3) 0 var(--hm-s1);
 }

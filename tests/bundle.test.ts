@@ -66,7 +66,8 @@ describe('hebra-main.mjs (hay que construirlo: npm run build:hebra)', () => {
 
     // La pestaña enseña el estado vacío, con «Revisar la biblioteca» habilitado.
     const mounted = fake.host.tabView.mount(tabViews[0].id);
-    expect(mounted.el.textContent).toContain('Revisa la biblioteca para buscar enlaces rotos');
+    expect(mounted.el.textContent).toContain('Busca enlaces rotos, notas sin descripción');
+    expect(mounted.el.textContent).toContain('Qué revisa');
     const button = mounted.el.querySelector<HTMLButtonElement>('.hebra-mantenimiento-run');
     expect(button?.textContent).toBe('Revisar la biblioteca');
     expect(button?.disabled).toBe(false);
@@ -148,6 +149,13 @@ describe('hebra-main.mjs (hay que construirlo: npm run build:hebra)', () => {
       ageRating: '4+'
     });
     expect(Object.keys(manifest.files as object).sort()).toEqual(['hebra-main.mjs', 'hebra-styles.css']);
+  });
+
+  it('hebra-styles.css lleva su letra dentro (`data:`) y ninguna ruta a `./fonts/`', () => {
+    const css = readFileSync(join(ROOT, 'hebra-styles.css'), 'utf8');
+    expect(css).not.toContain("url('./fonts/");
+    expect(css).toMatch(/font-family: 'Figtree Variable';[^}]*url\('data:font\/woff2;base64,[A-Za-z0-9+/=]{10000,}'\)/);
+    expect(css).toContain('SIL Open Font License');
   });
 });
 
