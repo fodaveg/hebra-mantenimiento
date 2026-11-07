@@ -39,6 +39,10 @@ export interface NoteAnalysis {
   v: number;
   /** El frontmatter trae `descripcion`, `descripción` o `description` no vacía. */
   hasDescription: boolean;
+  /** El frontmatter trae la propiedad `jd` (índices de JDex Manager). */
+  hasJd: boolean;
+  /** Primer párrafo limpio (≤200), o `null` si hay descripción, `jd` o no hay prosa. */
+  proposedDescription: string | null;
   links: LinkRef[];
 }
 
