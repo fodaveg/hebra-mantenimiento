@@ -1,6 +1,6 @@
 {
   "name": "hebra-mantenimiento",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Hebra plugin: finds broken links, notes without a description, duplicate folders and orphan notes, and proposes fixes with a preview.",
   "license": "MIT",
   "private": true,

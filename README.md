@@ -13,7 +13,7 @@ Busca, y enseña antes de tocar nada:
 
 Cada arreglo se propone con una vista previa y solo se aplica lo que la persona marca.
 
-> Estado: 0.1.1. Revisa la biblioteca, enseña los resultados por tipo con vista previa y aplica lo que se marca. La pestaña tiene el aspecto de Ajustes de Hebra (letra, botones, campos y casillas de Hebra, en claro y oscuro) aunque Hebra no le dé su hoja base.
+> Estado: 0.1.2. Revisa la biblioteca, enseña los resultados por tipo con vista previa y aplica lo que se marca. La pestaña tiene el aspecto de Ajustes de Hebra (letra, botones, campos y casillas de Hebra, en claro y oscuro) aunque Hebra no le dé su hoja base.
 
 ## Qué no hace nunca
 
