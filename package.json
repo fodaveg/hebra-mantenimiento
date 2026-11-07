@@ -9,6 +9,7 @@
     "typecheck": "tsc -noEmit -skipLibCheck",
     "release:sign-publish": "node scripts/sign-publish.mjs",
     "build:hebra": "node scripts/build-hebra.mjs",
+    "build:real-markdown": "node scripts/bundle-hebra-markdown.mjs",
     "lint": "eslint .",
     "test": "vitest run --maxWorkers=1",
     "check": "npm run lint && npm run typecheck && npm run build:hebra && npm test"

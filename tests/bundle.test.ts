@@ -158,7 +158,7 @@ describe('Mantenimiento no borra, mueve, renombra ni crea nada (criterio 23)', (
   });
 
   it('la prueba negativa: el escaneo salta con cada nombre prohibido', () => {
-    expect(FORBIDDEN_CALLS).toHaveLength(9);
+    expect(FORBIDDEN_CALLS).toHaveLength(13);
     for (const name of FORBIDDEN_CALLS as string[]) {
       expect(findForbiddenCalls(`await api.vault.${name}(id);`), name).toEqual([name]);
     }

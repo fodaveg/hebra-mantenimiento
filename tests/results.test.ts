@@ -260,7 +260,7 @@ describe('tope de filas pintadas', () => {
 
 describe('modelo', () => {
   it('applyLabel concuerda singular y plural', () => {
-    const base = { links: 0, linksChecked: 0, descriptions: 0, duplicates: 0, orphans: 0 };
+    const base = { links: 0, linksChecked: 0, descriptions: 0, duplicates: 0, orphans: 0, unseen: 0 };
     expect(applyLabel({ ...base, changes: 0, notes: 0 })).toBe('Aplicar cambios');
     expect(applyLabel({ ...base, changes: 1, notes: 1 })).toBe('Aplicar 1 cambio en 1 nota');
     expect(applyLabel({ ...base, changes: 15, notes: 12 })).toBe('Aplicar 15 cambios en 12 notas');
@@ -274,7 +274,8 @@ describe('modelo', () => {
     const key = keyOf({ ...links[0], target: links[0].target! });
     expect(linePreview(body, links, key, { newTarget: 'Canción', addAlias: false, resolvesToOnlyTarget: true })).toEqual({
       before: 'Ver [[Cancion#Letra|la canción]] ahora.',
-      after: 'Ver [[Canción#Letra|la canción]] ahora.'
+      after: 'Ver [[Canción#Letra|la canción]] ahora.',
+      occurrences: 1
     });
     expect(linePreview(body, links, key, null)?.after).toBe('Ver [[Cancion#Letra|la canción]] ahora.');
     expect(linePreview('nada', [], key, null)).toBeNull();

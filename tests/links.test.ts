@@ -122,7 +122,7 @@ describe('4. se conserva todo menos el destino', () => {
     await fake.dispose();
   });
 
-  it('en una fila de tabla el alias añadido se separa con \\|', () => {
+  it('con aliasSeparator \\| el alias se separa como en una celda de tabla', () => {
     const body = '| [[Cancion]] |\n';
     const links = [
       {
@@ -130,7 +130,7 @@ describe('4. se conserva todo menos el destino', () => {
         targetPath: null, alias: null, heading: null, blockId: null, targetKind: 'note-title'
       }
     ] as const;
-    const out = rewriteLinks(body, links, [{ key: keyOf({ ...links[0], target: 'cancion' }), newTarget: 'A/Canción', addAlias: true }]);
+    const out = rewriteLinks(body, links, [{ key: keyOf({ ...links[0], target: 'cancion' }), newTarget: 'A/Canción', addAlias: true }], { aliasSeparator: '\\|' });
     expect(out.body).toBe('| [[A/Canción\\|Cancion]] |\n');
   });
 });

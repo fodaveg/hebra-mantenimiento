@@ -70,6 +70,7 @@ describe('scanLibrary con 4.050 notas', () => {
     let pauses = 0;
     const markdown: ScanMarkdown = {
       frontmatter: (body) => markdownOf(fake).frontmatter(body),
+      frontmatterRange: (body) => markdownOf(fake).frontmatterRange(body),
       links: (body) => {
         sinceLastPause += 1;
         most = Math.max(most, sinceLastPause);

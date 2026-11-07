@@ -86,14 +86,20 @@ export function activate(api: HebraPluginApi): Promise<PluginCleanup> {
       api.workspace.onNotesChange((change) => {
         if (!ownWrites.isOwn(change.ids)) listener();
       }),
-    applyChecked: (model) =>
-      applyChecked(model, {
+    applyChecked: async (model) => {
+      try {
+        return await applyChecked(model, {
         vault: api.vault,
         markdown: api.markdown,
         isLockedError: (error) => api.isError(error, 'note-locked'),
         onWriteStart: (ids) => ownWrites.begin(ids),
         onWriteEnd: (ids) => ownWrites.end(ids)
-      }),
+        });
+      } finally {
+        // Los cuerpos leídos para las vistas previas ya no son los de las notas escritas (M6).
+        bodies = new Map();
+      }
+    },
     linkPreview: async (noteId, key, fix) => {
       const body = await bodyOf(noteId);
       return body === null ? null : linePreview(body, api.markdown.links(body), key, fix);

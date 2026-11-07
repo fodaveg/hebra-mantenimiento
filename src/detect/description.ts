@@ -10,6 +10,8 @@ export interface MissingDescription {
   folderId: string;
   /** `null` = «Sin propuesta» (no hay párrafo de prosa): se lista sin casilla. */
   proposal: string | null;
+  /** Hay propuesta pero el frontmatter no se puede parchear sin riesgo: sin casilla. */
+  writable: boolean;
 }
 
 /** Excluye protegidas, copias de conflicto, archivadas y notas con `jd` en el frontmatter. */
@@ -19,7 +21,7 @@ export function detectMissingDescription(scan: Pick<ScanResult, 'notes'>): Missi
     const analysis = note.analysis;
     if (note.locked || note.conflictOf !== null || note.archivedAt !== null || analysis === null) continue;
     if (analysis.hasDescription || analysis.hasJd) continue;
-    out.push({ id: note.id, title: note.title, folderId: note.folderId, proposal: analysis.proposedDescription });
+    out.push({ id: note.id, title: note.title, folderId: note.folderId, proposal: analysis.proposedDescription, writable: analysis.canWriteDescription });
   }
   return out;
 }

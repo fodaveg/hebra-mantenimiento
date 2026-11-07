@@ -15,17 +15,17 @@
  *   `markdown.frontmatter` sobre el cuerpo nuevo; si no sale EXACTA, no se escribe.
  */
 import type { PluginMarkdown, PluginNoteRevision, PluginVault } from 'hebra-plugin-api/v2';
-import { keyOf, keyString, rewriteLinks, type LinkFix } from '../detect/links';
+import { canonical, keyOf, keyString, rewriteLinks, visibleText, type LinkFix } from '../detect/links';
 import { detectOrphans } from '../detect/orphans';
+import { writeDescription } from '../detect/write';
 import { analyzeBody } from '../scan/analyze';
+import { verifyRewrite } from './verify';
 import { orphanRowsOf, recordOutcomes, sectionOf, type DescriptionRow, type LinkRow, type Outcome, type ResultsModel } from '../results/model';
 
 export const BATCH_SIZE = 200;
 export const READ_CONCURRENCY = 4;
-/** La propiedad que se escribe (sin tilde). */
-export const DESCRIPTION_KEY = 'descripcion';
 
-export type FailReason = 'changed' | 'locked' | 'gone' | 'unsafe' | 'link-gone' | 'error';
+export type FailReason = 'changed' | 'locked' | 'gone' | 'unsafe' | 'link-gone' | 'unverified' | 'title' | 'error';
 
 export const DONE_TEXT = 'Hecho';
 export const REASON_TEXT: Record<Exclude<FailReason, 'error'>, string> = {
@@ -33,11 +33,13 @@ export const REASON_TEXT: Record<Exclude<FailReason, 'error'>, string> = {
   locked: 'Protegida: no se tocó',
   gone: 'Ya no existe',
   unsafe: 'No se puede escribir la propiedad sin riesgo',
-  'link-gone': 'El enlace ya no está en la nota: no se tocó'
+  'link-gone': 'El enlace ya no está en la nota: no se tocó',
+  unverified: 'No se pudo verificar el cambio: no se tocó',
+  title: 'El enlace está en el título de la nota: no se tocó'
 };
 
 /** Lo que se usa de `api.markdown` al aplicar. */
-export type ApplyMarkdown = Pick<PluginMarkdown, 'links' | 'frontmatter' | 'setProperty'>;
+export type ApplyMarkdown = Pick<PluginMarkdown, 'links' | 'frontmatter' | 'frontmatterRange' | 'setProperty'>;
 
 export interface ApplyDeps {
   vault: Pick<PluginVault, 'noteRead' | 'noteSummary' | 'notesRewriteBatch'>;
@@ -107,17 +109,6 @@ export function causeOf(linkChanges: number, description: boolean): string {
   return `Mantenimiento: ${parts.join(' y ')}`;
 }
 
-/** Escribe la descripción y comprueba el resultado; `null` si no sale exacta. */
-function withDescription(markdown: ApplyDeps['markdown'], body: string, proposal: string): string | null {
-  try {
-    const next = markdown.setProperty(body, DESCRIPTION_KEY, proposal);
-    if (next === body) return null;
-    return markdown.frontmatter(next)?.[DESCRIPTION_KEY] === proposal ? next : null;
-  } catch {
-    return null;
-  }
-}
-
 async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const results = new Array<R>(items.length);
   let next = 0;
@@ -153,12 +144,12 @@ export async function applyChecked(model: ResultsModel, deps: ApplyDeps): Promis
     }
   });
   for (const { plan, note, error } of reads) {
-    if (error !== null) return failAllWith(plans, error);
-    if (note === null) failAll(plan, failed('gone'));
+    if (error !== null) failAll(plan, failed('error', error));
+    else if (note === null || note.trashedAt !== null) failAll(plan, failed('gone'));
     else if (note.locked || note.body === null) failAll(plan, failed('locked'));
     else if (note.revision.bodySha256 !== reviewed.get(plan.noteId)?.bodySha256) failAll(plan, failed('changed'));
     else {
-      const entry = compute(plan, note.body, note.revision, markdown, outcomes);
+      const entry = compute(plan, note.body, note.revision, reviewed.get(plan.noteId)?.title ?? '', markdown, outcomes);
       if (entry) entries.push(entry);
     }
   }
@@ -171,7 +162,15 @@ export async function applyChecked(model: ResultsModel, deps: ApplyDeps): Promis
   for (const [cause, group] of byCause) {
     for (let start = 0; start < group.length; start += BATCH_SIZE) {
       const chunk = group.slice(start, start + BATCH_SIZE);
-      batches += await writeChunk(chunk, cause, deps, outcomes, written);
+      try {
+        batches += await writeChunk(chunk, cause, deps, outcomes, written);
+      } catch (error) {
+        // Lo ya escrito sigue contando; este lote queda como error y se sigue con los demás (M4).
+        for (const entry of chunk) {
+          if (written.has(entry.noteId)) continue;
+          for (const row of entry.rows) outcomes.set(row.id, failed('error', error instanceof Error ? error.message : String(error)));
+        }
+      }
     }
   }
 
@@ -200,12 +199,16 @@ export async function applyChecked(model: ResultsModel, deps: ApplyDeps): Promis
     failedRows: [...outcomes.values()].filter((o) => o.state === 'failed').length,
     batches
   };
+}
 
-  function failAllWith(all: Plan[], detail: string): ApplyReport {
-    for (const plan of all) failAll(plan, failed('error', detail));
-    recordOutcomes(model, outcomes);
-    return { outcomes, changes: 0, notes: 0, changedMeanwhile: 0, failedRows: outcomes.size, batches: 0 };
-  }
+/** ¿La línea de este enlace es la que da el título a la nota (un H1 sin `title:` en el frontmatter)? */
+function inTitleLine(body: string, from: number, title: string, hasTitleProperty: boolean): boolean {
+  if (hasTitleProperty) return false;
+  const start = body.lastIndexOf('\n', from - 1) + 1;
+  const end = body.indexOf('\n', from);
+  const line = body.slice(start, end < 0 ? body.length : end).replace(/\r$/, '');
+  const heading = /^#\s+(.*?)\s*#*$/.exec(line);
+  return heading !== null && canonical(heading[1]) === canonical(title);
 }
 
 /** El cuerpo nuevo de una nota con todos sus arreglos; anota en `outcomes` los que no se pueden. */
@@ -213,43 +216,89 @@ function compute(
   plan: Plan,
   body: string,
   revision: PluginNoteRevision,
+  title: string,
   markdown: ApplyDeps['markdown'],
   outcomes: Map<string, Outcome>
 ): Entry | null {
+  const links = markdown.links(body);
+  const counts = new Map<string, number>();
+  const titled = new Set<string>();
+  const hasTitleProperty = markdown.frontmatter(body)?.title !== undefined;
+  for (const link of links) {
+    if (link.target === null) continue;
+    const k = keyString(keyOf({ ...link, target: link.target }));
+    counts.set(k, (counts.get(k) ?? 0) + 1);
+    if (inTitleLine(body, link.from, title, hasTitleProperty)) titled.add(k);
+  }
   const rows: Entry['rows'] = [];
-  let next = body;
+  const fixes: LinkFix[] = [];
   let linkChanges = 0;
-  if (plan.links.length > 0) {
-    const links = markdown.links(body);
-    const counts = new Map<string, number>();
-    for (const link of links) {
-      if (link.target === null) continue;
-      const k = keyString(keyOf({ ...link, target: link.target }));
-      counts.set(k, (counts.get(k) ?? 0) + 1);
-    }
-    const fixes: LinkFix[] = [];
-    for (const row of plan.links) {
-      const matches = counts.get(keyString(row.finding.key)) ?? 0;
-      if (matches === 0 || row.fix === null) {
-        outcomes.set(row.id, failed('link-gone'));
-        continue;
-      }
+  for (const row of plan.links) {
+    const k = keyString(row.finding.key);
+    const matches = counts.get(k) ?? 0;
+    if (matches === 0 || row.fix === null) outcomes.set(row.id, failed('link-gone'));
+    else if (titled.has(k)) outcomes.set(row.id, failed('title'));
+    else {
       fixes.push({ key: row.finding.key, newTarget: row.fix.newTarget, addAlias: row.fix.addAlias });
       rows.push({ id: row.id, changes: matches });
       linkChanges += matches;
     }
-    if (fixes.length > 0) next = rewriteLinks(body, links, fixes).body;
   }
-  if (plan.description && plan.description.item.proposal !== null) {
-    const withProperty = withDescription(markdown, next, plan.description.item.proposal);
-    if (withProperty === null) outcomes.set(plan.description.id, failed('unsafe'));
-    else {
-      next = withProperty;
-      rows.push({ id: plan.description.id, changes: 1 });
+  const proposal = plan.description?.item.proposal ?? null;
+  const wantsDescription = plan.description !== null && proposal !== null;
+  if (fixes.length === 0 && !wantsDescription) return null;
+
+  // Separador del alias: Hebra lee `\|` como separador solo DENTRO de una tabla (y `|` suelto en
+  // una celda la parte, cosa que `markdown.links` no ve). La regla no está en la API, así que se
+  // sondea: se reescribe con `\|` y se mira qué enlaces vuelve a leer Hebra enteros (destino y
+  // alias esperados); esos están en una tabla y llevan `\|`, los demás `|`. La verificación final
+  // da por mala la nota entera si algo no cuadra.
+  let tableLinks = new Set<number>();
+  if (fixes.some((f) => f.addAlias)) {
+    const probe = rewriteLinks(body, links, fixes, { aliasSeparator: '\\|' });
+    const reread = markdown.links(probe.body);
+    if (reread.length === links.length) {
+      const byKey = new Map(fixes.map((f) => [keyString(f.key), f]));
+      tableLinks = new Set(
+        links.flatMap((link, i) => {
+          const fix = link.target === null ? undefined : byKey.get(keyString(keyOf({ ...link, target: link.target })));
+          if (!fix?.addAlias || link.alias !== null || link.kind === 'image') return [];
+          const got = reread[i];
+          return got.rawTarget === fix.newTarget && got.alias === visibleText(link.rawTarget) ? [link.from] : [];
+        })
+      );
     }
   }
-  if (rows.length === 0 || next === body) return null;
-  return { noteId: plan.noteId, body: next, expected: revision, cause: causeOf(linkChanges, rows.some((r) => r.id === plan.description?.id)), rows };
+  let chosen: { next: string; descriptionOk: boolean } | null = null;
+  {
+    const rewritten =
+      fixes.length > 0
+        ? rewriteLinks(body, links, fixes, { aliasSeparator: (link) => (tableLinks.has(link.from) ? '\\|' : '|') })
+        : { body, edits: [], rewritten: 0 };
+    let next = rewritten.body;
+    let descriptionOk = false;
+    if (wantsDescription) {
+      const withProperty = writeDescription(markdown, next, proposal);
+      if (withProperty !== null) {
+        next = withProperty;
+        descriptionOk = true;
+      }
+    }
+    const before = markdown.frontmatterRange(rewritten.body)?.end ?? 0;
+    const baseShift = descriptionOk ? (markdown.frontmatterRange(next)?.end ?? 0) - before : 0;
+    if (verifyRewrite(links, markdown.links(next), fixes, rewritten.edits, baseShift)) chosen = { next, descriptionOk };
+  }
+  if (chosen === null) {
+    for (const row of rows) outcomes.set(row.id, failed('unverified'));
+    if (plan.description) outcomes.set(plan.description.id, failed('unverified'));
+    return null;
+  }
+  if (wantsDescription) {
+    if (chosen.descriptionOk) rows.push({ id: plan.description!.id, changes: 1 });
+    else outcomes.set(plan.description!.id, failed('unsafe'));
+  }
+  if (rows.length === 0 || chosen.next === body) return null;
+  return { noteId: plan.noteId, body: chosen.next, expected: revision, cause: causeOf(linkChanges, chosen.descriptionOk), rows };
 }
 
 /**
@@ -297,7 +346,13 @@ async function writeChunk(
           return calls;
         }
         // Una protegida tumba el lote entero: quitarlas y reintentar UNA vez.
-        const summaries = await vault.noteSummary(pending.map((e) => e.noteId));
+        let summaries: Awaited<ReturnType<typeof vault.noteSummary>>;
+        try {
+          summaries = await vault.noteSummary(pending.map((e) => e.noteId));
+        } catch (summaryError) {
+          failEntries(pending, failed('error', summaryError instanceof Error ? summaryError.message : String(summaryError)));
+          return calls;
+        }
         const known = new Map(summaries.map((s) => [s.id, s]));
         failEntries(pending.filter((e) => known.get(e.noteId)?.locked === true), failed('locked'));
         failEntries(pending.filter((e) => !known.has(e.noteId) || known.get(e.noteId)!.trashedAt !== null), failed('gone'));

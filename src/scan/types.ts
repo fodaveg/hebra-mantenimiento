@@ -7,7 +7,7 @@ import type { PluginFolder, PluginMarkdown, PluginVault } from 'hebra-plugin-api
 export type ScanVault = Pick<PluginVault, 'notesPage' | 'noteRead' | 'noteSummary' | 'foldersList'>;
 
 /** Lo que el recorrido usa de `api.markdown` (síncrono: sale del espejo del marco). */
-export type ScanMarkdown = Pick<PluginMarkdown, 'links' | 'frontmatter'>;
+export type ScanMarkdown = Pick<PluginMarkdown, 'links' | 'frontmatter' | 'frontmatterRange'> & Partial<Pick<PluginMarkdown, 'setProperty'>>;
 
 /**
  * Un enlace del cuerpo, reducido a lo que las reglas necesitan para decidir si apunta a algo
@@ -43,6 +43,8 @@ export interface NoteAnalysis {
   hasJd: boolean;
   /** Primer párrafo limpio (≤200), o `null` si hay descripción, `jd` o no hay prosa. */
   proposedDescription: string | null;
+  /** La propuesta se puede escribir sin riesgo (ensayo en seco con `setProperty`). */
+  canWriteDescription: boolean;
   links: LinkRef[];
 }
 
