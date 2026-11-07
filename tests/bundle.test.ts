@@ -93,6 +93,46 @@ describe('hebra-main.mjs (hay que construirlo: npm run build:hebra)', () => {
     await fake.dispose();
   });
 
+  it('aplica de punta a punta con el módulo construido; el aviso de cambios no salta por la escritura propia pero sí por una ajena', async () => {
+    const loaded = (await import(/* @vite-ignore */ pathToFileURL(BUNDLE).href)) as {
+      activate(api: unknown): Promise<() => Promise<void> | void>;
+    };
+    const fake = makeFake({ o: '# O\n\n[[Cancion]]\n', c: '# Canción\n', x: '# Ajena\n' });
+    const api = new Proxy({}, {
+      get(_target, key) {
+        if (key === 'ui') return Reflect.get(fake.host.api, key) as unknown;
+        if (key === 'workspace') {
+          return new Proxy({}, {
+            get: (_t, name) =>
+              Reflect.get(name === 'openView' ? fake.host.api.workspace : fake.api.workspace, name) as unknown
+          });
+        }
+        return Reflect.get(fake.api, key) as unknown;
+      }
+    });
+    const cleanup = await loaded.activate(api);
+    const mounted = fake.host.tabView.mount(fake.host.recorded.tabViews[0].id);
+    const q = <T extends Element>(selector: string): T | null => mounted.el.querySelector<T>(selector);
+    q<HTMLButtonElement>('.hebra-mantenimiento-run')!.click();
+    await vi.waitFor(() => expect(q('.hebra-mantenimiento-apply')).not.toBeNull());
+    const apply = q<HTMLButtonElement>('.hebra-mantenimiento-apply')!;
+    expect(apply.textContent).toBe('Aplicar 1 cambio en 1 nota');
+    apply.click();
+    await vi.waitFor(() => expect(q('.hebra-mantenimiento-summary')?.textContent).toBe('Aplicado 1 cambio en 1 nota.'));
+    expect((await fake.api.vault.noteRead('o'))?.body).toBe('# O\n\n[[Canción]]\n');
+
+    const stale = q<HTMLElement>('.hebra-mantenimiento-stale')!;
+    fake.emitNotesChange({ ids: ['o'], reason: 'plugin' });
+    await fake.settle();
+    expect(stale.hidden).toBe(true);
+    fake.emitNotesChange({ ids: ['x'], reason: 'edit' });
+    await fake.settle();
+    expect(stale.hidden).toBe(false);
+    mounted.unmount();
+    await cleanup();
+    await fake.dispose();
+  });
+
   it('el manifiesto describe los ficheros y las capacidades acordadas', () => {
     const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8')) as Record<string, unknown>;
     const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as { version: string };

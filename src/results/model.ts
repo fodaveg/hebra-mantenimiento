@@ -32,6 +32,13 @@ export async function analyze(scan: ScanResult, lookupRename?: RenameLookup): Pr
   };
 }
 
+/** Lo que pasó con una fila al aplicar. */
+export interface Outcome {
+  state: 'done' | 'failed';
+  /** El texto que enseña la fila («Hecho» o el motivo). */
+  text: string;
+}
+
 export interface LinkRow {
   kind: 'link';
   id: string;
@@ -44,6 +51,7 @@ export interface LinkRow {
   checked: boolean;
   /** Elegido y sin arreglo posible (el título no se puede escribir en un enlace). */
   unwritable: boolean;
+  outcome: Outcome | null;
 }
 export interface DescriptionRow {
   kind: 'description';
@@ -51,6 +59,7 @@ export interface DescriptionRow {
   group: string;
   item: MissingDescription;
   checked: boolean;
+  outcome: Outcome | null;
 }
 export interface FolderRow {
   kind: 'folder';
@@ -94,6 +103,14 @@ export function folderPath(folders: readonly PluginFolder[], folderId: string): 
   return names.length > 0 ? names.join('/') : 'Biblioteca';
 }
 
+/** Las filas de «Sin enlaces entrantes», ordenadas por carpeta. */
+export function orphanRowsOf(review: ReviewData): OrphanRow[] {
+  const rows = review.orphans.flatMap((group) =>
+    group.notes.map((note): OrphanRow => ({ kind: 'orphan', id: note.id, group: folderPath(review.scan.folders, group.folderId), note }))
+  );
+  return rows.sort((a, b) => a.group.localeCompare(b.group));
+}
+
 export function buildModel(review: ReviewData): ResultsModel {
   const { scan } = review;
   const noteFolder = new Map(scan.notes.map((n) => [n.id, n.folderId]));
@@ -109,7 +126,8 @@ export function buildModel(review: ReviewData): ResultsModel {
       chosen: finding.status === 'broken' && only !== null ? only.note.id : null,
       fix: usable ? finding.fix : null,
       checked: usable && finding.checked,
-      unwritable: finding.status === 'broken' && only !== null && finding.fix === null
+      unwritable: finding.status === 'broken' && only !== null && finding.fix === null,
+      outcome: null
     };
   });
   const descriptions: DescriptionRow[] = review.descriptions.map((item) => ({
@@ -117,7 +135,8 @@ export function buildModel(review: ReviewData): ResultsModel {
     id: item.id,
     group: pathOf(item.folderId),
     item,
-    checked: false
+    checked: false,
+    outcome: null
   }));
   const folders: FolderRow[] = review.duplicates.map((duplicate) => ({
     kind: 'folder',
@@ -125,9 +144,7 @@ export function buildModel(review: ReviewData): ResultsModel {
     group: '',
     duplicate
   }));
-  const orphans: OrphanRow[] = review.orphans.flatMap((group) =>
-    group.notes.map((note): OrphanRow => ({ kind: 'orphan', id: note.id, group: pathOf(group.folderId), note }))
-  );
+  const orphans = orphanRowsOf(review);
   const byGroup = <T extends { group: string }>(rows: T[]): T[] => rows.sort((a, b) => a.group.localeCompare(b.group));
   byGroup(links);
   byGroup(descriptions);
@@ -150,7 +167,7 @@ const descriptionRows = (model: ResultsModel): DescriptionRow[] => sectionOf(mod
 /** Elegir un candidato de un enlace: planifica el arreglo y, si lo hay, marca la fila. */
 export function chooseCandidate(model: ResultsModel, rowId: string, noteId: string | null): void {
   const row = linkRows(model).find((r) => r.id === rowId);
-  if (!row) return;
+  if (!row || row.outcome !== null) return;
   const candidate = row.finding.candidates.find((c) => c.note.id === noteId);
   if (!candidate) {
     row.chosen = null;
@@ -168,7 +185,7 @@ export function chooseCandidate(model: ResultsModel, rowId: string, noteId: stri
 /** Marcar o desmarcar una fila; una fila sin arreglo no se puede marcar. */
 export function setChecked(model: ResultsModel, rowId: string, checked: boolean): void {
   for (const row of [...linkRows(model), ...descriptionRows(model)]) {
-    if (row.id !== rowId) continue;
+    if (row.id !== rowId || row.outcome !== null) continue;
     if (row.kind === 'link') row.checked = checked && row.fix !== null;
     else row.checked = checked && row.item.proposal !== null;
   }
@@ -177,7 +194,17 @@ export function setChecked(model: ResultsModel, rowId: string, checked: boolean)
 /** «Marcar todo lo seguro»: los arreglos que la revisión dejó marcados (y siguen teniendo arreglo). */
 export function markSafe(model: ResultsModel): void {
   for (const row of linkRows(model)) {
-    if (row.finding.checked && row.fix !== null && row.chosen === row.finding.candidates[0]?.note.id) row.checked = true;
+    if (row.outcome === null && row.finding.checked && row.fix !== null && row.chosen === row.finding.candidates[0]?.note.id) row.checked = true;
+  }
+}
+
+/** Anota el resultado de aplicar en las filas (y las deja sin casilla marcada). */
+export function recordOutcomes(model: ResultsModel, outcomes: ReadonlyMap<string, Outcome>): void {
+  for (const row of [...linkRows(model), ...descriptionRows(model)]) {
+    const outcome = outcomes.get(row.id);
+    if (!outcome) continue;
+    row.outcome = outcome;
+    row.checked = false;
   }
 }
 
@@ -201,8 +228,9 @@ export interface Counts {
 }
 
 export function countsOf(model: ResultsModel): Counts {
-  const rowsLinks = linkRows(model);
-  const rowsDescriptions = descriptionRows(model);
+  // Lo ya hecho deja de contar; lo que falló sigue siendo un problema pendiente (sin casilla).
+  const rowsLinks = linkRows(model).filter((r) => r.outcome?.state !== 'done');
+  const rowsDescriptions = descriptionRows(model).filter((r) => r.outcome?.state !== 'done');
   const touched = new Set<string>();
   let changes = 0;
   let linksChecked = 0;

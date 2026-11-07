@@ -8,6 +8,8 @@
  * mueve ni renombra (`tests/bundle.test.ts` lo comprueba sobre el módulo construido).
  */
 import type { HebraPluginApi, PluginCleanup } from 'hebra-plugin-api/v2';
+import { applyChecked } from './apply/apply';
+import { createOwnWrites } from './apply/own-writes';
 import { mountPanel, PANEL_TITLE, type PanelHost, type RunReview } from './panel';
 import { analyze } from './results/model';
 import { linePreview } from './results/preview';
@@ -73,11 +75,25 @@ export function activate(api: HebraPluginApi): Promise<PluginCleanup> {
     return body;
   };
 
+  // Las escrituras propias no deben disparar «La biblioteca ha cambiado» (ver `own-writes.ts`).
+  const ownWrites = createOwnWrites();
+
   const host: PanelHost = {
     openNote: (id) => api.workspace.openNote(id),
     openSearch: (query) => api.workspace.openSearch(query),
     selectFolder: (id) => api.workspace.selectFolder(id),
-    onNotesChange: (listener) => api.workspace.onNotesChange(() => listener()),
+    onNotesChange: (listener) =>
+      api.workspace.onNotesChange((change) => {
+        if (!ownWrites.isOwn(change.ids)) listener();
+      }),
+    applyChecked: (model) =>
+      applyChecked(model, {
+        vault: api.vault,
+        markdown: api.markdown,
+        isLockedError: (error) => api.isError(error, 'note-locked'),
+        onWriteStart: (ids) => ownWrites.begin(ids),
+        onWriteEnd: (ids) => ownWrites.end(ids)
+      }),
     linkPreview: async (noteId, key, fix) => {
       const body = await bodyOf(noteId);
       return body === null ? null : linePreview(body, api.markdown.links(body), key, fix);

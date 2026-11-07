@@ -7,6 +7,7 @@
  * Solo UNA sección está desplegada (las demás no pintan filas) y su ventana crece de 100 en 100
  * hasta 200; a partir de ahí «Ver 100 más» DESLIZA la ventana en vez de ampliarla.
  */
+import type { ApplyReport } from '../apply/apply';
 import type { LinkKey, PlannedFix } from '../detect/links';
 import { formatCount } from './format';
 import type { LinePreview } from './preview';
@@ -41,6 +42,23 @@ export interface ResultsHost {
   selectFolder(id: string): void;
   /** La línea del enlace en la nota, antes y después del arreglo (`null`: sin arreglo todavía). */
   linkPreview(noteId: string, key: LinkKey, fix: PlannedFix | null): Promise<LinePreview | null>;
+  /** Escribe las filas marcadas (`applyChecked` con la API) y devuelve qué pasó con cada una. */
+  applyChecked(model: ResultsModel): Promise<ApplyReport>;
+}
+
+export const APPLYING_TEXT = 'Aplicando…';
+export const UNDO_BUTTON = 'Deshacer desde la nota';
+
+const plural = (n: number, one: string, many: string): string => `${formatCount(n)} ${n === 1 ? one : many}`;
+
+/** «Aplicados 14 cambios en 11 notas. 1 nota cambió mientras tanto y no se tocó.» */
+export function appliedSummary(report: ApplyReport): string {
+  const parts = [`${report.changes === 1 ? 'Aplicado' : 'Aplicados'} ${plural(report.changes, 'cambio', 'cambios')} en ${plural(report.notes, 'nota', 'notas')}.`];
+  const n = report.changedMeanwhile;
+  if (n > 0) parts.push(`${formatCount(n)} ${n === 1 ? 'nota cambió mientras tanto y no se tocó' : 'notas cambiaron mientras tanto y no se tocaron'}.`);
+  const other = report.failedRows - [...report.outcomes.values()].filter((o) => o.text.startsWith('Cambió')).length;
+  if (other > 0) parts.push(`${plural(other, 'cambio no se aplicó', 'cambios no se aplicaron')}: mira el motivo en cada fila.`);
+  return parts.join(' ');
 }
 
 export const EMPTY_TEXT = 'No hay nada que arreglar';
@@ -95,9 +113,13 @@ export function mountResults(
   const sectionsBox = make('div', 'sections');
   const applyButton = make('button', 'apply');
   applyButton.type = 'button';
-  applyButton.disabled = true; // Aplicar es P6.
+  const summary = make('p', 'summary');
+  summary.tabIndex = -1;
+  summary.setAttribute('role', 'status');
+  summary.hidden = true;
   const footer = make('div', 'footer');
   footer.append(applyButton);
+  let busy = false;
 
   const headings = new Map<SectionId, HTMLButtonElement>();
   const bodies = new Map<SectionId, HTMLElement>();
@@ -110,7 +132,9 @@ export function mountResults(
   function refreshCounts(): void {
     const counts = countsOf(model);
     for (const [id, heading] of headings) heading.textContent = headingOf(id, counts);
-    applyButton.textContent = applyLabel(counts);
+    applyButton.textContent = busy ? APPLYING_TEXT : applyLabel(counts);
+    applyButton.disabled = busy || counts.changes === 0;
+    for (const control of toolbar.querySelectorAll('button')) control.disabled = busy;
   }
 
   function renderBody(section: Section): void {
@@ -211,6 +235,22 @@ export function mountResults(
     };
   }
 
+  /** «Hecho» + «Deshacer desde la nota», o el motivo por el que no se aplicó. */
+  function outcomeBox(item: HTMLElement): { show(outcome: { state: string; text: string } | null, noteId: string): void } {
+    const box = make('div', 'outcome');
+    box.hidden = true;
+    item.append(box);
+    return {
+      show(outcome, noteId) {
+        box.hidden = outcome === null;
+        if (outcome === null) return;
+        box.dataset.state = outcome.state;
+        box.replaceChildren(make('span', 'outcome-text', outcome.state === 'done' ? `✓ ${outcome.text}` : `✗ ${outcome.text}`));
+        if (outcome.state === 'done') box.append(button(UNDO_BUTTON, () => host.openNote(noteId), 'open'));
+      }
+    };
+  }
+
   function renderLinkRow(item: HTMLElement, row: LinkRow): void {
     const f = row.finding;
     titleLine(item, f.sourceTitle, f.sourceId);
@@ -259,6 +299,7 @@ export function mountResults(
       item.append(selectLabel);
     }
     item.append(note, label);
+    const outcome = outcomeBox(item);
     check.addEventListener('change', () => {
       setChecked(model, row.id, check.checked);
       refresh();
@@ -283,7 +324,11 @@ export function mountResults(
     function refresh(): void {
       const fixable = row.fix !== null;
       check.checked = row.checked;
-      check.disabled = !fixable;
+      check.disabled = !fixable || busy || row.outcome !== null;
+      outcome.show(row.outcome, f.sourceId);
+      if (row.outcome !== null) label.hidden = true;
+      const select = item.querySelector('select');
+      if (select) select.disabled = busy || row.outcome !== null;
       labelText.textContent = fixable ? 'Arreglar este enlace' : 'Sin arreglo: elige un destino';
       note.textContent = row.unwritable ? 'Ese título no se puede escribir en un enlace: no hay arreglo.' : '';
       if (f.candidates.length === 0) note.textContent = 'Ninguna nota se parece a este enlace.';
@@ -291,7 +336,6 @@ export function mountResults(
         shownFor = row.chosen;
         loadPreview();
       }
-      const select = item.querySelector('select');
       if (select) select.value = row.chosen ?? '';
     }
     refreshers.set(row.id, refresh);
@@ -312,14 +356,19 @@ export function mountResults(
     const label = make('label', 'check');
     label.append(check, make('span', undefined, 'Añadir esta descripción'));
     item.append(label);
+    const outcome = outcomeBox(item);
     check.addEventListener('change', () => {
       setChecked(model, row.id, check.checked);
       refreshCounts();
     });
-    refreshers.set(row.id, () => {
+    const refresh = (): void => {
       check.checked = row.checked;
-    });
-    check.checked = row.checked;
+      check.disabled = busy || row.outcome !== null;
+      outcome.show(row.outcome, row.item.id);
+      if (row.outcome !== null) label.hidden = true;
+    };
+    refreshers.set(row.id, refresh);
+    refresh();
   }
 
   function renderFolderRow(item: HTMLElement, row: FolderRow): void {
@@ -340,6 +389,40 @@ export function mountResults(
   function renderOrphanRow(item: HTMLElement, row: OrphanRow): void {
     titleLine(item, row.note.title, row.note.id);
   }
+
+  applyButton.addEventListener('click', () => {
+    if (busy || countsOf(model).changes === 0) return;
+    busy = true;
+    summary.hidden = true;
+    root.setAttribute('aria-busy', 'true');
+    refreshAll();
+    host
+      .applyChecked(model)
+      .then((report) => {
+        if (!alive) return;
+        busy = false;
+        root.removeAttribute('aria-busy');
+        summary.hidden = false;
+        summary.textContent = appliedSummary(report);
+        summary.dataset.state = report.failedRows > 0 ? 'with-warnings' : 'done';
+        // Lo único que cambia fuera de las filas es «Sin enlaces entrantes».
+        const orphans = model.sections.find((x) => x.id === 'orphans')!;
+        if (orphans.rows.length === 0) bodies.get('orphans')?.replaceChildren();
+        else if (bodies.has('orphans')) renderBody(orphans);
+        refreshAll();
+        summary.focus();
+      })
+      .catch((error: unknown) => {
+        if (!alive) return;
+        busy = false;
+        root.removeAttribute('aria-busy');
+        summary.hidden = false;
+        summary.dataset.state = 'with-warnings';
+        summary.textContent = `No se pudo aplicar: ${error instanceof Error ? error.message : String(error)}`;
+        refreshAll();
+        summary.focus();
+      });
+  });
 
   // ---- armado ----
   const counts = countsOf(model);
@@ -366,7 +449,7 @@ export function mountResults(
       box.append(h, body);
       sectionsBox.append(box);
     }
-    root.append(sectionsBox, footer);
+    root.append(sectionsBox, footer, summary);
     refreshCounts();
     for (const section of model.sections) if (section.rows.length > 0) renderBody(section);
   }
