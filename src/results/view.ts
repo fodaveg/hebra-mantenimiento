@@ -62,6 +62,8 @@ export function appliedSummary(report: ApplyReport): string {
 }
 
 export const EMPTY_TEXT = 'No hay nada que arreglar';
+export const EMPTY_DETAIL =
+  'Ningún enlace roto, todas las notas tienen descripción, ninguna carpeta repetida y todas las notas reciben algún enlace.';
 export const SAFE_BUTTON = 'Marcar todo lo seguro';
 export const CLEAR_BUTTON = 'Desmarcar todo';
 export const MORE_BUTTON = `Ver ${PAGE_ROWS} más`;
@@ -107,7 +109,9 @@ export function mountResults(
   let paintedRows = 0;
 
   const root = make('div', 'results');
-  const empty = make('p', 'empty', EMPTY_TEXT);
+  const empty = make('div', 'empty');
+  empty.setAttribute('role', 'status');
+  empty.append(make('p', 'empty-title', EMPTY_TEXT), make('p', 'empty-text', EMPTY_DETAIL));
   const toolbar = make('div', 'toolbar');
   toolbar.append(button(SAFE_BUTTON, () => { markSafe(model); refreshAll(); }), button(CLEAR_BUTTON, () => { clearAll(model); refreshAll(); }));
   const sectionsBox = make('div', 'sections');
@@ -129,9 +133,22 @@ export function mountResults(
     refreshCounts();
   }
 
+  /**
+   * «Enlaces rotos (37, 12 con arreglo marcado)» en dos piezas, el nombre y el recuento
+   * apagado, sin cambiar el texto del botón (lo que lee el lector de pantalla).
+   */
+  function setHeading(toggle: HTMLButtonElement, text: string): void {
+    const cut = text.indexOf(' (');
+    if (cut < 0) {
+      toggle.textContent = text;
+      return;
+    }
+    toggle.replaceChildren(make('span', 'section-name', text.slice(0, cut)), make('span', 'section-count', text.slice(cut)));
+  }
+
   function refreshCounts(): void {
     const counts = countsOf(model);
-    for (const [id, heading] of headings) heading.textContent = headingOf(id, counts);
+    for (const [id, heading] of headings) setHeading(heading, headingOf(id, counts));
     applyButton.textContent = busy ? APPLYING_TEXT : applyLabel(counts);
     applyButton.disabled = busy || counts.changes === 0;
     for (const control of toolbar.querySelectorAll('button')) control.disabled = busy;
