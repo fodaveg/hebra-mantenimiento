@@ -85,7 +85,7 @@ describe.skipIf(real === null)('B1. una descripcion que no es texto no se pisa (
     setChecked(model, 'n', true);
     const lossy: ApplyMarkdown = {
       ...markdownOf(fake),
-      setProperty: (body, key, value) => markdownOf(fake).setProperty(body, key, value).replace('Párrafo.', 'Otro.')
+      setProperty: (body, key, value) => markdownOf(fake).setProperty(body, key, value).replace(/\nPárrafo\.\n$/, '\nOtro.\n')
     };
     await applyChecked(model, deps(fake, spy(fake), lossy));
     expect(descRows(model)[0].outcome?.text).toBe(REASON_TEXT.unsafe);
