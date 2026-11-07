@@ -78,7 +78,7 @@ export interface ScanResult {
   stats: ScanStats;
 }
 
-export type ScanPhase = 'folders' | 'listing' | 'summaries' | 'reading';
+export type ScanPhase = 'folders' | 'listing' | 'summaries' | 'reading' | 'detecting';
 
 /** `total` es 0 mientras no se conoce (en `listing`). */
 export interface ScanProgress {

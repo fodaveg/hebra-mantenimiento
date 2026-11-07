@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from 'vitest';
-import { formatCount, mountPanel, progressText, summaryText } from '../src/panel';
+import { ERROR_TEXT, formatCount, mountPanel, progressText, STALE_TEXT, summaryText } from '../src/panel';
+import { analyze, type ReviewData } from '../src/results/model';
+import { stubHost } from './helpers';
 import { ScanCancelledError, type ScanProgress, type ScanResult } from '../src/scan/types';
 
 afterEach(() => {
@@ -9,7 +11,7 @@ afterEach(() => {
 
 const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
-const RESULT: ScanResult = {
+const SCAN: ScanResult = {
   folders: [],
   notes: [],
   stats: { notes: 4050, archived: 50, locked: 2, reads: 12, cacheHits: 4036 }
@@ -28,7 +30,7 @@ describe('textos', () => {
   });
 
   it('el recuento final', () => {
-    expect(summaryText(RESULT)).toBe(
+    expect(summaryText(SCAN)).toBe(
       '4.050 notas revisadas (50 archivadas, 2 protegidas sin leer, 12 leídas, 4.036 ya conocidas).'
     );
   });
@@ -38,12 +40,12 @@ describe('mountPanel', () => {
   it('el botón está habilitado; revisar enseña el progreso y «Cancelar», y al acabar el recuento', async () => {
     const el = document.createElement('div');
     document.body.append(el);
-    let finish!: (r: ScanResult) => void;
+    let finish!: (r: ReviewData) => void;
     let emit!: (p: ScanProgress) => void;
     mountPanel(el, (_signal, onProgress) => {
       emit = onProgress;
-      return new Promise<ScanResult>((resolve) => (finish = resolve));
-    });
+      return new Promise<ReviewData>((resolve) => (finish = resolve));
+    }, stubHost().host);
     const run = el.querySelector<HTMLButtonElement>('.hebra-mantenimiento-run')!;
     const cancel = el.querySelector<HTMLButtonElement>('.hebra-mantenimiento-cancel')!;
     const status = el.querySelector('.hebra-mantenimiento-status')!;
@@ -57,7 +59,7 @@ describe('mountPanel', () => {
     expect(status.textContent).toBe('Leyendo notas: 1.200 de 4.050');
     expect(cancel.textContent).toBe('Cancelar');
 
-    finish(RESULT);
+    finish(await analyze(SCAN));
     await flush();
     expect(status.textContent).toContain('4.050 notas revisadas');
     expect(run.disabled).toBe(false);
@@ -70,10 +72,10 @@ describe('mountPanel', () => {
     let seen!: AbortSignal;
     mountPanel(el, (signal) => {
       seen = signal;
-      return new Promise<ScanResult>((_resolve, reject) =>
+      return new Promise<ReviewData>((_resolve, reject) =>
         signal.addEventListener('abort', () => reject(new ScanCancelledError()))
       );
-    });
+    }, stubHost().host);
     el.querySelector<HTMLButtonElement>('.hebra-mantenimiento-run')!.click();
     el.querySelector<HTMLButtonElement>('.hebra-mantenimiento-cancel')!.click();
     await flush();
@@ -88,11 +90,60 @@ describe('mountPanel', () => {
     let seen!: AbortSignal;
     const unmount = mountPanel(el, (signal) => {
       seen = signal;
-      return new Promise<ScanResult>(() => undefined);
-    });
+      return new Promise<ReviewData>(() => undefined);
+    }, stubHost().host);
     el.querySelector<HTMLButtonElement>('.hebra-mantenimiento-run')!.click();
     unmount();
     expect(seen.aborted).toBe(true);
     expect(el.childNodes).toHaveLength(0);
+  });
+});
+
+
+describe('mountPanel: resultados, error y aviso de cambios', () => {
+  it('sin hallazgos enseña «No hay nada que arreglar»', async () => {
+    const el = document.createElement('div');
+    document.body.append(el);
+    mountPanel(el, () => analyze(SCAN), stubHost().host);
+    el.querySelector<HTMLButtonElement>('.hebra-mantenimiento-run')!.click();
+    await flush();
+    expect(el.textContent).toContain('No hay nada que arreglar');
+  });
+
+  it('un fallo de lectura dice «No se pudo leer la biblioteca.» y ofrece Reintentar', async () => {
+    const el = document.createElement('div');
+    document.body.append(el);
+    let fail = true;
+    mountPanel(el, () => (fail ? Promise.reject(new Error('boom')) : analyze(SCAN)), stubHost().host);
+    const run = el.querySelector<HTMLButtonElement>('.hebra-mantenimiento-run')!;
+    run.click();
+    await flush();
+    expect(el.querySelector('.hebra-mantenimiento-status')!.textContent).toBe(ERROR_TEXT);
+    expect(run.textContent).toBe('Reintentar');
+    fail = false;
+    run.click();
+    await flush();
+    expect(el.querySelector('.hebra-mantenimiento-status')!.textContent).toContain('notas revisadas');
+    expect(run.textContent).toBe('Revisar la biblioteca');
+  });
+
+  it('si cambia la biblioteca con los resultados a la vista sale el aviso y «Revisar de nuevo» repite', async () => {
+    const el = document.createElement('div');
+    document.body.append(el);
+    const stub = stubHost();
+    let runs = 0;
+    mountPanel(el, () => (runs += 1, analyze(SCAN)), stub.host);
+    const stale = el.querySelector<HTMLElement>('.hebra-mantenimiento-stale')!;
+    stub.emitChange(); // aún no hay resultados: no avisa
+    expect(stale.hidden).toBe(true);
+    el.querySelector<HTMLButtonElement>('.hebra-mantenimiento-run')!.click();
+    await flush();
+    stub.emitChange();
+    expect(stale.hidden).toBe(false);
+    expect(stale.textContent).toContain(STALE_TEXT);
+    stale.querySelector('button')!.click();
+    await flush();
+    expect(runs).toBe(2);
+    expect(stale.hidden).toBe(true);
   });
 });

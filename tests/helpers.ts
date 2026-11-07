@@ -121,3 +121,30 @@ export async function scanOf(fake: FakePluginApiV2): Promise<ScanResult> {
     { pause: () => Promise.resolve() }
   );
 }
+
+/** Un `PanelHost` de mentira que apunta lo que se le pide y deja disparar «cambió la biblioteca». */
+export function stubHost(): {
+  host: import('../src/panel').PanelHost;
+  calls: { opened: string[]; searched: string[]; folders: string[]; previews: string[] };
+  emitChange(): void;
+} {
+  const calls = { opened: [] as string[], searched: [] as string[], folders: [] as string[], previews: [] as string[] };
+  const listeners = new Set<() => void>();
+  return {
+    calls,
+    emitChange: () => listeners.forEach((l) => l()),
+    host: {
+      openNote: (id) => void calls.opened.push(id),
+      openSearch: (q) => void calls.searched.push(q),
+      selectFolder: (id) => void calls.folders.push(id),
+      onNotesChange: (listener) => {
+        listeners.add(listener);
+        return () => void listeners.delete(listener);
+      },
+      linkPreview: (noteId, key, fix) => {
+        calls.previews.push(`${noteId}|${key.target}|${fix?.newTarget ?? ''}`);
+        return Promise.resolve({ before: `antes ${key.target}`, after: `después ${fix?.newTarget ?? ''}` });
+      }
+    }
+  };
+}
