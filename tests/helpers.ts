@@ -3,7 +3,8 @@ import { createFakePluginApiV2, type FakePluginApiV2 } from 'hebra-plugin-api/v2
 import type { FakeSeedNote } from 'hebra-plugin-api/testing';
 import type { PluginVault } from 'hebra-plugin-api/v2';
 import { idbCache, openDb, type AnalysisCache } from '../src/scan/db';
-import type { ScanMarkdown, ScanVault } from '../src/scan/types';
+import { scanLibrary } from '../src/scan/scan';
+import type { ScanMarkdown, ScanResult, ScanVault } from '../src/scan/types';
 
 export interface LibraryShape {
   live: number;
@@ -111,4 +112,12 @@ export function markdownOf(fake: FakePluginApiV2): ScanMarkdown {
       return out;
     }
   };
+}
+
+/** Recorre la biblioteca falsa (sin caché ni esperas) y devuelve el resultado del recorrido. */
+export async function scanOf(fake: FakePluginApiV2): Promise<ScanResult> {
+  return scanLibrary(
+    { vault: fake.api.vault, markdown: markdownOf(fake), cache: null },
+    { pause: () => Promise.resolve() }
+  );
 }
