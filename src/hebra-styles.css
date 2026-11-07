@@ -23,6 +23,19 @@
     U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
+/* La mono de Hebra (`--mono`, JetBrains Mono) no viaja en el marco: su nombre se apunta a la
+   mono del sistema, como hace la hoja base de Hebra. Sin esto, las vistas previas salían en
+   Courier. */
+@font-face {
+  font-family: 'JetBrains Mono Variable';
+  font-style: normal;
+  font-display: swap;
+  src:
+    local('SF Mono Regular'), local('SFMono-Regular'), local('Menlo Regular'), local('Menlo-Regular'),
+    local('Consolas'), local('DejaVu Sans Mono'), local('DejaVuSansMono'), local('Liberation Mono'),
+    local('LiberationMono');
+}
+
 .hebra-mantenimiento {
   /* Variables locales: la de Hebra o, si no llega, su valor del tema claro de serie. */
   --hm-ink: var(--ink, CanvasText);
@@ -517,6 +530,11 @@ html[data-hebra-theme='hebra'][data-mode='dark'] .hebra-mantenimiento {
   min-width: 0;
   padding: var(--hm-s3) 0;
   border-top: 1px solid var(--hm-soft-line);
+}
+
+/* Un botón suelto en la fila («Buscar») mide lo que su texto, no toda la fila. */
+.hebra-mantenimiento-row > button {
+  justify-self: start;
 }
 
 .hebra-mantenimiento-rows > .hebra-mantenimiento-row:first-child {

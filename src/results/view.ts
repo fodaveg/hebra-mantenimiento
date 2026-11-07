@@ -321,7 +321,9 @@ export function mountResults(
       });
       item.append(selectLabel);
     }
-    item.append(note, label);
+    // Sin candidatos la nota ya va antes de «Buscar»: no se mueve detrás.
+    if (f.candidates.length === 0) item.append(label);
+    else item.append(note, label);
     const outcome = outcomeBox(item);
     check.addEventListener('change', () => {
       setChecked(model, row.id, check.checked);
