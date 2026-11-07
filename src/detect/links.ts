@@ -92,7 +92,8 @@ export function buildLinkIndex(scan: Pick<ScanResult, 'notes' | 'folders'>): Lin
 
 // ---- punto 1: resolver ----
 
-const lastSegments = (names: string[]): string[] => names.map((n) => canonical(n));
+/** Como Hebra: `trim().toLowerCase()` SIN NFKC en los segmentos de carpeta (M3). */
+const lastSegments = (names: string[]): string[] => names.map((n) => n.trim().toLowerCase());
 
 /** ¿Acaban los segmentos de carpeta de la nota en la ruta del enlace? */
 function pathMatches(index: LinkIndex, note: ScannedNote, path: string): boolean {
@@ -172,7 +173,7 @@ export function parseTarget(text: string): Judged {
       : ref
           .slice(0, slash)
           .split('/')
-          .map((segment) => canonical(segment))
+          .map((segment) => segment.trim().toLowerCase())
           .filter(Boolean)
           .join('/') || null;
   const extension = /\.([^.\s/]{1,8})$/u.exec(name);
@@ -186,7 +187,8 @@ export function parseTarget(text: string): Judged {
 }
 
 /** Caracteres que rompen un wikilink o cambian cómo se lee su destino. */
-const UNSAFE_IN_TARGET = /[[\]|#^\n\r]/;
+/** (`%%` abre un comentario y esconde los enlaces que siguen: B3 de la revisión.) */
+const UNSAFE_IN_TARGET = /[[\]|#^\n\r]|%%/;
 
 export interface PlannedFix {
   /** El texto nuevo del destino (solo el destino: sin `!`, alias ni encabezado). */
@@ -301,7 +303,7 @@ export async function detectLinks(
   const findings: LinkFinding[] = [];
   for (const source of scan.notes) {
     if (source.locked || source.analysis === null) continue;
-    const groups = new Map<string, { link: LinkRef & { target: string }; count: number }>();
+    const groups = new Map<string, { link: LinkRef & { target: string }; count: number; image: boolean }>();
     for (const link of source.analysis.links) {
       if (link.target === null) continue;
       const withTarget = { ...link, target: link.target };
@@ -309,10 +311,12 @@ export async function detectLinks(
       if (resolution.status === 'ok' || resolution.status === 'skipped') continue;
       const key = keyString(keyOf(withTarget));
       const group = groups.get(key);
-      if (group) group.count += 1;
-      else groups.set(key, { link: withTarget, count: 1 });
+      if (group) {
+        group.count += 1;
+        group.image = group.image || link.kind === 'image';
+      } else groups.set(key, { link: withTarget, count: 1, image: link.kind === 'image' });
     }
-    for (const [key, { link, count }] of groups) {
+    for (const [key, { link, count, image }] of groups) {
       const resolution = resolveLink(index, link);
       const base = { id: `${source.id}\u0000${key}`, sourceId: source.id, sourceTitle: source.title, link, key: keyOf(link), occurrences: count };
       if (resolution.status === 'ambiguous') {
@@ -325,7 +329,9 @@ export async function detectLinks(
       }
       const candidates = brokenCandidates(index, link, link.targetKind === 'note-id' ? null : await renamed(link.target));
       const only = candidates.length === 1 ? candidates[0] : null;
-      const fix = only ? planFix(index, only.note) : null;
+      let fix = only ? planFix(index, only.note) : null;
+      // N2: en `![alt](destino)` un paréntesis del destino rompe el enlace.
+      if (fix && image && /[()]/.test(fix.newTarget)) fix = null;
       const checked =
         only !== null && fix !== null && fix.resolvesToOnlyTarget && !only.conflictCopy && !only.changesJdNumber;
       findings.push({ ...base, status: 'broken', candidates, fix, checked });
@@ -345,22 +351,46 @@ export interface LinkFix {
   addAlias: boolean;
 }
 
+export interface RewriteEdit {
+  /** Posición en el cuerpo ORIGINAL. */
+  at: number;
+  remove: number;
+  text: string;
+}
+
 export interface RewriteResult {
   body: string;
   /** Apariciones reescritas. */
   rewritten: number;
+  /** Las ediciones aplicadas (en coordenadas del cuerpo original), para verificar el resultado. */
+  edits: RewriteEdit[];
+}
+
+/** El texto que Hebra enseña de un destino: el último segmento de la ruta, sin `.md` (N3). */
+export function visibleText(rawTarget: string): string {
+  const name = rawTarget.trim().slice(rawTarget.trim().lastIndexOf('/') + 1);
+  return name.replace(/\.md$/i, '').trim();
 }
 
 /**
  * Reescribe en `body` los enlaces de `links` (la salida de `markdown.links(body)` sobre ESE
  * mismo cuerpo) cuyo destino coincide con alguno de `fixes`. Solo cambia el rango del destino
- * (conserva `!`, alias, encabezado y bloque); con `addAlias` y sin alias, añade `|texto visto`.
- * Todas las apariciones se reescriben juntas. Un enlace cuyo rango ya no coincide con lo que
- * dice `rawTarget` se deja como está.
+ * (conserva `!`, alias, encabezado y bloque); con `addAlias` y sin alias, añade `|texto visible`.
+ * `aliasSeparator` es `|` (por defecto) o `\|` dentro de una tabla: quien llama lo elige
+ * verificando el resultado con `markdown.links`, porque la regla de tabla es de Hebra. Todas las
+ * apariciones se reescriben juntas. Un enlace cuyo rango ya no coincide con su `rawTarget` se
+ * deja como está.
  */
-export function rewriteLinks(body: string, links: readonly PluginMarkdownLink[], fixes: readonly LinkFix[]): RewriteResult {
+export function rewriteLinks(
+  body: string,
+  links: readonly PluginMarkdownLink[],
+  fixes: readonly LinkFix[],
+  options: { aliasSeparator?: '|' | '\\|' | ((link: PluginMarkdownLink) => '|' | '\\|') } = {}
+): RewriteResult {
+  const separatorOf = (link: PluginMarkdownLink): '|' | '\\|' =>
+    typeof options.aliasSeparator === 'function' ? options.aliasSeparator(link) : (options.aliasSeparator ?? '|');
   const byKey = new Map(fixes.map((fix) => [keyString(fix.key), fix]));
-  const edits: { at: number; remove: number; text: string }[] = [];
+  const edits: RewriteEdit[] = [];
   let rewritten = 0;
   for (const link of links) {
     if (link.target === null) continue;
@@ -369,16 +399,13 @@ export function rewriteLinks(body: string, links: readonly PluginMarkdownLink[],
     if (body.slice(link.targetFrom, link.targetTo) !== link.rawTarget) continue;
     edits.push({ at: link.targetFrom, remove: link.targetTo - link.targetFrom, text: fix.newTarget });
     if (fix.addAlias && link.alias === null && link.kind !== 'image' && body.slice(link.to - 2, link.to) === ']]') {
-      // En una fila de tabla (la línea empieza por `|`) el alias se separa con `\\|`.
-      const lineStart = body.lastIndexOf('\n', link.from - 1) + 1;
-      const separator = body[lineStart] === '|' ? '\\|' : '|';
-      edits.push({ at: link.to - 2, remove: 0, text: `${separator}${link.rawTarget.trim()}` });
+      edits.push({ at: link.to - 2, remove: 0, text: `${separatorOf(link)}${visibleText(link.rawTarget)}` });
     }
     rewritten += 1;
   }
   let out = body;
-  for (const edit of edits.sort((a, b) => b.at - a.at)) {
+  for (const edit of [...edits].sort((a, b) => b.at - a.at)) {
     out = out.slice(0, edit.at) + edit.text + out.slice(edit.at + edit.remove);
   }
-  return { body: out, rewritten };
+  return { body: out, rewritten, edits };
 }

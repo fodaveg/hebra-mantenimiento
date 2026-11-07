@@ -3,8 +3,9 @@ import { createFakePluginApiV2, type FakePluginApiV2 } from 'hebra-plugin-api/v2
 import type { FakeSeedNote } from 'hebra-plugin-api/testing';
 import type { PluginVault } from 'hebra-plugin-api/v2';
 import { idbCache, openDb, type AnalysisCache } from '../src/scan/db';
+import { mountResults } from '../src/results/view';
 import { scanLibrary } from '../src/scan/scan';
-import type { ApplyMarkdown } from '../src/apply/apply';
+import type { ApplyDeps, ApplyMarkdown } from '../src/apply/apply';
 import type { ScanResult, ScanVault } from '../src/scan/types';
 
 export interface LibraryShape {
@@ -105,6 +106,7 @@ export function markdownOf(fake: FakePluginApiV2): ApplyMarkdown {
   const block = /^---\n([\s\S]*?)\n---(\n|$)/;
   return {
     links: (body) => fake.api.markdown.links(body),
+    frontmatterRange: (body) => fake.api.markdown.frontmatterRange(body),
     frontmatter: (body) => {
       const match = block.exec(body);
       if (!match) return null;
@@ -166,8 +168,75 @@ export function stubHost(applyChecked?: import('../src/panel').PanelHost['applyC
       applyChecked: applyChecked ?? (() => Promise.reject(new Error('applyChecked no esperado'))),
       linkPreview: (noteId, key, fix) => {
         calls.previews.push(`${noteId}|${key.target}|${fix?.newTarget ?? ''}`);
-        return Promise.resolve({ before: `antes ${key.target}`, after: `después ${fix?.newTarget ?? ''}` });
+        return Promise.resolve({ before: `antes ${key.target}`, after: `después ${fix?.newTarget ?? ''}`, occurrences: 1 });
       }
     }
   };
+}
+
+export type Fake = ReturnType<typeof makeFake>;
+
+export interface Spy {
+  vault: ApplyDeps['vault'];
+  batches: { ids: string[]; options: unknown; strict: boolean[] }[];
+  saves: number;
+  reads: string[];
+  locked: Set<string>;
+  gone: Set<string>;
+  /** Se ejecuta tras leer una nota y antes de escribir (para cambiarla «entre medias»). */
+  afterRead?: (id: string) => void;
+}
+
+/** Envuelve el almacén: cuenta lo que se llama, simula protegidas y `note-locked` como Hebra. */
+export function spy(fake: Fake): Spy {
+  const real = fake.api.vault as PluginVault;
+  const s: Spy = { vault: undefined as never, batches: [], saves: 0, reads: [], locked: new Set(), gone: new Set() };
+  s.vault = {
+    noteRead: async (id) => {
+      s.reads.push(id);
+      if (s.gone.has(id)) return null;
+      const note = await real.noteRead(id);
+      const lockedNow = s.locked.has(id);
+      s.afterRead?.(id);
+      return note && lockedNow ? { ...note, locked: true, body: null } : note;
+    },
+    noteSummary: async (ids) => (await real.noteSummary(ids)).filter((n) => !s.gone.has(n.id)).map((n) => (s.locked.has(n.id) ? { ...n, locked: true } : n)),
+    notesRewriteBatch: async (entries, options) => {
+      s.batches.push({ ids: entries.map((e) => e.id), options, strict: entries.map((e) => e.strictRevision === true) });
+      if (entries.some((e) => s.locked.has(e.id))) {
+        throw Object.assign(new Error('nota protegida'), { name: 'PluginApiError', code: 'note-locked' });
+      }
+      return real.notesRewriteBatch(entries, options);
+    }
+  };
+  // Todo lo demás del almacén pasa al real; `noteSave` queda contado por si el código lo llamara.
+  const custom = s.vault as unknown as Record<string, unknown>;
+  s.vault = new Proxy(custom, {
+    get(target, key) {
+      if (key in target) return target[key as string];
+      if (key === 'noteSave') {
+        return (...args: Parameters<PluginVault['noteSave']>) => {
+          s.saves += 1;
+          return real.noteSave(...args);
+        };
+      }
+      return Reflect.get(real, key) as unknown;
+    }
+  }) as unknown as ApplyDeps['vault'];
+  return s;
+}
+
+export const deps = (fake: Fake, s: Spy, markdown: ApplyMarkdown = markdownOf(fake)): ApplyDeps => ({
+  vault: s.vault,
+  markdown,
+  isLockedError: (e) => (e as { code?: string })?.code === 'note-locked'
+});
+
+
+/** Monta la vista de resultados con un host de mentira en un `div` del documento. */
+export function mountWith(review: import('../src/results/model').ReviewData): { el: HTMLElement } {
+  const el = document.createElement('div');
+  document.body.append(el);
+  mountResults(el, review, stubHost().host);
+  return { el };
 }

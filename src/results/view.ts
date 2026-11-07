@@ -192,6 +192,8 @@ export function mountResults(
       }
       body.append(pager);
     }
+    // Las filas recién pintadas dejan de contar como «sin ver».
+    if (headings.size > 0) refreshCounts();
   }
 
   const rowSection = new Map<string, SectionId>();
@@ -258,8 +260,12 @@ export function mountResults(
     item.append(
       make('p', 'meta', `${what} a «${f.link.target}»${f.occurrences > 1 ? ` (${formatCount(f.occurrences)} veces en la nota)` : ''}`)
     );
+    row.seen = true;
     const preview = previewBox();
     item.append(preview.box);
+    const count = make('p', 'preview-count');
+    count.hidden = true;
+    item.append(count);
     preview.show('Leyendo la línea…', null);
     const check = make('input');
     check.type = 'checkbox';
@@ -316,7 +322,11 @@ export function mountResults(
         .then((result) => {
           if (!alive || token !== previewToken) return;
           if (result === null) preview.show('No se pudo leer la línea.', null);
-          else preview.show(result.before, row.fix ? result.after : null);
+          else {
+            preview.show(result.before, row.fix ? result.after : null);
+            count.hidden = result.occurrences < 2;
+            count.textContent = `Se enseña la primera de ${formatCount(result.occurrences)} apariciones de este enlace en la nota; se reescriben todas.`;
+          }
         })
         .catch(() => alive && preview.show('No se pudo leer la línea.', null));
     };
@@ -344,11 +354,16 @@ export function mountResults(
 
   function renderDescriptionRow(item: HTMLElement, row: DescriptionRow): void {
     titleLine(item, row.item.title, row.item.id);
+    row.seen = true;
     const preview = previewBox();
     preview.show('Sin descripción', row.item.proposal === null ? null : `descripcion: ${row.item.proposal}`);
     item.append(preview.box);
     if (row.item.proposal === null) {
       item.append(make('p', 'note', 'Sin propuesta'));
+      return;
+    }
+    if (!row.item.writable) {
+      item.append(make('p', 'note', 'No se puede escribir la propiedad sin riesgo'));
       return;
     }
     const check = make('input');

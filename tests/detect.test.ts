@@ -73,11 +73,11 @@ describe('sin descripción (15, 16, 17)', () => {
     const fake = makeFake({ a: 'Texto de a.' });
     const db = await openTestDb(fake);
     const cache = idbCache(db);
-    const stale = { sha256: 'x', v: CACHE_VERSION - 1, hasDescription: true, hasJd: false, proposedDescription: null, links: [] };
+    const stale = { sha256: 'x', v: CACHE_VERSION - 1, hasDescription: true, hasJd: false, proposedDescription: null, canWriteDescription: false, links: [] };
     const tx = db.transaction(ANALYSIS_STORE, 'readwrite');
     tx.objectStore(ANALYSIS_STORE).put(stale);
     await new Promise<void>((r) => (tx.oncomplete = () => r()));
-    expect(CACHE_VERSION).toBe(2);
+    expect(CACHE_VERSION).toBe(3);
     expect((await cache.getMany(['x'])).size).toBe(0);
     await cache.putMany([{ ...stale, v: CACHE_VERSION }]);
     expect((await cache.getMany(['x'])).size).toBe(1);

@@ -52,6 +52,8 @@ export interface LinkRow {
   /** Elegido y sin arreglo posible (el título no se puede escribir en un enlace). */
   unwritable: boolean;
   outcome: Outcome | null;
+  /** La fila se ha pintado alguna vez (la persona ha podido verla). */
+  seen: boolean;
 }
 export interface DescriptionRow {
   kind: 'description';
@@ -60,6 +62,7 @@ export interface DescriptionRow {
   item: MissingDescription;
   checked: boolean;
   outcome: Outcome | null;
+  seen: boolean;
 }
 export interface FolderRow {
   kind: 'folder';
@@ -127,7 +130,8 @@ export function buildModel(review: ReviewData): ResultsModel {
       fix: usable ? finding.fix : null,
       checked: usable && finding.checked,
       unwritable: finding.status === 'broken' && only !== null && finding.fix === null,
-      outcome: null
+      outcome: null,
+      seen: false
     };
   });
   const descriptions: DescriptionRow[] = review.descriptions.map((item) => ({
@@ -136,7 +140,8 @@ export function buildModel(review: ReviewData): ResultsModel {
     group: pathOf(item.folderId),
     item,
     checked: false,
-    outcome: null
+    outcome: null,
+    seen: false
   }));
   const folders: FolderRow[] = review.duplicates.map((duplicate) => ({
     kind: 'folder',
@@ -187,7 +192,7 @@ export function setChecked(model: ResultsModel, rowId: string, checked: boolean)
   for (const row of [...linkRows(model), ...descriptionRows(model)]) {
     if (row.id !== rowId || row.outcome !== null) continue;
     if (row.kind === 'link') row.checked = checked && row.fix !== null;
-    else row.checked = checked && row.item.proposal !== null;
+    else row.checked = checked && row.item.proposal !== null && row.item.writable;
   }
 }
 
@@ -225,6 +230,8 @@ export interface Counts {
   changes: number;
   /** Notas distintas que tocaría. */
   notes: number;
+  /** De los cambios marcados, los de filas que nunca se han pintado (marcadas por defecto sin verlas). */
+  unseen: number;
 }
 
 export function countsOf(model: ResultsModel): Counts {
@@ -233,16 +240,19 @@ export function countsOf(model: ResultsModel): Counts {
   const rowsDescriptions = descriptionRows(model).filter((r) => r.outcome?.state !== 'done');
   const touched = new Set<string>();
   let changes = 0;
+  let unseen = 0;
   let linksChecked = 0;
   for (const row of rowsLinks) {
     if (!row.checked) continue;
     linksChecked += 1;
     changes += row.finding.occurrences;
+    if (!row.seen) unseen += row.finding.occurrences;
     touched.add(row.finding.sourceId);
   }
   for (const row of rowsDescriptions) {
     if (!row.checked) continue;
     changes += 1;
+    if (!row.seen) unseen += 1;
     touched.add(row.item.id);
   }
   return {
@@ -252,7 +262,8 @@ export function countsOf(model: ResultsModel): Counts {
     duplicates: sectionOf(model, 'folders').rows.length,
     orphans: sectionOf(model, 'orphans').rows.length,
     changes,
-    notes: touched.size
+    notes: touched.size,
+    unseen
   };
 }
 
@@ -260,7 +271,8 @@ export const isEmpty = (c: Counts): boolean => c.links + c.descriptions + c.dupl
 
 export function applyLabel(c: Counts): string {
   if (c.changes === 0) return 'Aplicar cambios';
-  return `Aplicar ${c.changes} ${c.changes === 1 ? 'cambio' : 'cambios'} en ${c.notes} ${c.notes === 1 ? 'nota' : 'notas'}`;
+  const unseen = c.unseen > 0 ? ` (${c.unseen} sin ver)` : '';
+  return `Aplicar ${c.changes} ${c.changes === 1 ? 'cambio' : 'cambios'} en ${c.notes} ${c.notes === 1 ? 'nota' : 'notas'}${unseen}`;
 }
 
 export function headingOf(id: SectionId, c: Counts): string {

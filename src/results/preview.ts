@@ -8,6 +8,8 @@ import { keyOf, keyString, rewriteLinks, type LinkKey, type PlannedFix } from '.
 export interface LinePreview {
   before: string;
   after: string;
+  /** Cuántas veces aparece este enlace en la nota (se reescriben todas juntas). */
+  occurrences: number;
 }
 
 const MAX_LINE = 240;
@@ -31,12 +33,14 @@ export function linePreview(
   fix: PlannedFix | null
 ): LinePreview | null {
   const wanted = keyString(key);
-  const link = links.find((l) => l.target !== null && keyString(keyOf({ ...l, target: l.target })) === wanted);
+  const matching = links.filter((l) => l.target !== null && keyString(keyOf({ ...l, target: l.target! })) === wanted);
+  const link = matching[0];
   if (!link) return null;
+  const occurrences = matching.length;
   const line = lineAt(body, link.from);
   const before = clip(line.text);
-  if (!fix) return { before, after: before };
+  if (!fix) return { before, after: before, occurrences };
   const rewritten = rewriteLinks(body, links, [{ key, newTarget: fix.newTarget, addAlias: fix.addAlias }]).body;
   const after = rewritten.split('\n')[line.number] ?? '';
-  return { before, after: clip(after) };
+  return { before, after: clip(after), occurrences };
 }

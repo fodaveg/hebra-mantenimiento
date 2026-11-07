@@ -3,74 +3,16 @@
 // Aplicar (P6) contra el host falso v2: criterios 1, 2, 4, 9, 10, 12 y 15 de docs/SPEC.md, el
 // reintento por `note-locked`, el reparto en lotes de 200 y que `noteSave` no se llama nunca.
 import type { FakeSeedNote } from 'hebra-plugin-api/testing';
-import type { PluginNoteRevision, PluginVault } from 'hebra-plugin-api/v2';
+import type { PluginNoteRevision } from 'hebra-plugin-api/v2';
 import { IDBFactory } from 'fake-indexeddb';
 import { describe, expect, it } from 'vitest';
-import { applyChecked, causeOf, REASON_TEXT, type ApplyDeps, type ApplyMarkdown } from '../src/apply/apply';
+import { applyChecked, causeOf, REASON_TEXT, type ApplyMarkdown } from '../src/apply/apply';
 import { createOwnWrites } from '../src/apply/own-writes';
 import { analyze, buildModel, chooseCandidate, setChecked, sectionOf, type LinkRow, type ResultsModel } from '../src/results/model';
 import { appliedSummary } from '../src/results/view';
 import { openDb } from '../src/scan/db';
 import { renameRegistry } from '../src/scan/renames';
-import { makeFake, markdownOf, scanOf } from './helpers';
-
-type Fake = ReturnType<typeof makeFake>;
-
-interface Spy {
-  vault: ApplyDeps['vault'];
-  batches: { ids: string[]; options: unknown; strict: boolean[] }[];
-  saves: number;
-  reads: string[];
-  locked: Set<string>;
-  gone: Set<string>;
-  /** Se ejecuta tras leer una nota y antes de escribir (para cambiarla «entre medias»). */
-  afterRead?: (id: string) => void;
-}
-
-/** Envuelve el almacén: cuenta lo que se llama, simula protegidas y `note-locked` como Hebra. */
-function spy(fake: Fake): Spy {
-  const real = fake.api.vault as PluginVault;
-  const s: Spy = { vault: undefined as never, batches: [], saves: 0, reads: [], locked: new Set(), gone: new Set() };
-  s.vault = {
-    noteRead: async (id) => {
-      s.reads.push(id);
-      if (s.gone.has(id)) return null;
-      const note = await real.noteRead(id);
-      const lockedNow = s.locked.has(id);
-      s.afterRead?.(id);
-      return note && lockedNow ? { ...note, locked: true, body: null } : note;
-    },
-    noteSummary: async (ids) => (await real.noteSummary(ids)).filter((n) => !s.gone.has(n.id)).map((n) => (s.locked.has(n.id) ? { ...n, locked: true } : n)),
-    notesRewriteBatch: async (entries, options) => {
-      s.batches.push({ ids: entries.map((e) => e.id), options, strict: entries.map((e) => e.strictRevision === true) });
-      if (entries.some((e) => s.locked.has(e.id))) {
-        throw Object.assign(new Error('nota protegida'), { name: 'PluginApiError', code: 'note-locked' });
-      }
-      return real.notesRewriteBatch(entries, options);
-    }
-  };
-  // Todo lo demás del almacén pasa al real; `noteSave` queda contado por si el código lo llamara.
-  const custom = s.vault as unknown as Record<string, unknown>;
-  s.vault = new Proxy(custom, {
-    get(target, key) {
-      if (key in target) return target[key as string];
-      if (key === 'noteSave') {
-        return (...args: Parameters<PluginVault['noteSave']>) => {
-          s.saves += 1;
-          return real.noteSave(...args);
-        };
-      }
-      return Reflect.get(real, key) as unknown;
-    }
-  }) as unknown as ApplyDeps['vault'];
-  return s;
-}
-
-const deps = (fake: Fake, s: Spy, markdown: ApplyMarkdown = markdownOf(fake)): ApplyDeps => ({
-  vault: s.vault,
-  markdown,
-  isLockedError: (e) => (e as { code?: string })?.code === 'note-locked'
-});
+import { deps, makeFake, markdownOf, scanOf, spy, type Fake } from './helpers';
 
 async function prepare(fake: Fake, rename?: [string, string][]): Promise<ResultsModel> {
   const scan = await scanOf(fake);

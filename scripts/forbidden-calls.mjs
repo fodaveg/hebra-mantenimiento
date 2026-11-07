@@ -11,7 +11,12 @@ export const FORBIDDEN_CALLS = [
   'folderMove',
   'folderCreate',
   'noteCreate',
-  'noteSave'
+  'noteSave',
+  // Variantes con guarda (N1) y reemplazo de ficheros.
+  'noteTrashIfUnchanged',
+  'noteMoveIfUnchanged',
+  'folderRenameIfUnchanged',
+  'fileReplace'
 ];
 
 /** The forbidden names found in `text` as whole identifiers (empty list = clean). The scan
