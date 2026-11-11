@@ -22,7 +22,7 @@
     "eslint": "^9.30.1",
     "happy-dom": "^20.14.5",
     "hebra-plugin-api": "github:fodaveg/hebra-plugin-api#v2.4.0",
-    "typescript": "^5.4.5",
+    "typescript": "^7.0.0",
     "typescript-eslint": "^8.35.1",
     "vite": "^7.0.0",
     "vitest": "^5.0.4"
