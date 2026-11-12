@@ -24,7 +24,7 @@
     "hebra-plugin-api": "github:fodaveg/hebra-plugin-api#v2.4.0",
     "typescript": "^5.4.5",
     "typescript-eslint": "^8.35.1",
-    "vite": "^7.0.0",
+    "vite": "^8.0.0",
     "vitest": "^5.0.4"
   }
 }
